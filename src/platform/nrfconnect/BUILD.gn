@@ -22,6 +22,8 @@ assert(chip_device_platform == "nrfconnect")
 static_library("nrfconnect") {
   sources = [
     "../SingletonConfigurationManager.cpp",
+    "../Zephyr/BLEAdvertisingArbiter.cpp",
+    "../Zephyr/BLEAdvertisingArbiter.h",
     "../Zephyr/BLEManagerImpl.cpp",
     "../Zephyr/ConfigurationManagerImpl.cpp",
     "../Zephyr/DiagnosticDataProviderImpl.cpp",
@@ -41,15 +43,38 @@ static_library("nrfconnect") {
     "ConfigurationManagerImpl.h",
     "ConnectivityManagerImpl.cpp",
     "ConnectivityManagerImpl.h",
-    "DeviceNetworkProvisioningDelegateImpl.cpp",
-    "DeviceNetworkProvisioningDelegateImpl.h",
+    "DiagnosticDataProviderImplNrf.cpp",
+    "DiagnosticDataProviderImplNrf.h",
+    "ExternalFlashManager.h",
     "InetPlatformConfig.h",
     "KeyValueStoreManagerImpl.h",
     "PlatformManagerImpl.h",
+    "Reboot.cpp",
+    "Reboot.h",
     "SystemPlatformConfig.h",
   ]
 
+  public = [
+    "${chip_root}/src/credentials/CHIPCert.h",
+    "${chip_root}/src/credentials/CertificationDeclaration.h",
+    "${chip_root}/src/credentials/DeviceAttestationCredsProvider.h",
+  ]
+
   public_deps = [ "${chip_root}/src/platform:platform_base" ]
+
+  if (chip_enable_factory_data) {
+    sources += [
+      "FactoryDataParser.c",
+      "FactoryDataParser.h",
+      "FactoryDataProvider.cpp",
+      "FactoryDataProvider.h",
+    ]
+  } else {
+    sources += [
+      "DeviceInstanceInfoProviderImpl.cpp",
+      "DeviceInstanceInfoProviderImpl.h",
+    ]
+  }
 
   if (chip_enable_openthread) {
     sources += [
@@ -59,9 +84,27 @@ static_library("nrfconnect") {
     ]
 
     if (chip_mdns == "platform") {
-      sources += [ "../OpenThread/DnssdImpl.cpp" ]
+      sources += [
+        "../OpenThread/DnssdImpl.cpp",
+        "../OpenThread/OpenThreadDnssdImpl.cpp",
+        "../OpenThread/OpenThreadDnssdImpl.h",
+      ]
       deps = [ "${chip_root}/src/lib/dnssd:platform_header" ]
     }
+  }
+
+  if (chip_enable_wifi) {
+    sources += [
+      "../Zephyr/InetUtils.cpp",
+      "../Zephyr/InetUtils.h",
+      "OTAImageProcessorImplWiFi.h",
+      "wifi/ConnectivityManagerImplWiFi.cpp",
+      "wifi/ConnectivityManagerImplWiFi.h",
+      "wifi/NrfWiFiDriver.cpp",
+      "wifi/NrfWiFiDriver.h",
+      "wifi/WiFiManager.cpp",
+      "wifi/WiFiManager.h",
+    ]
   }
 
   if (chip_enable_nfc) {
@@ -81,4 +124,6 @@ static_library("nrfconnect") {
   if (chip_malloc_sys_heap) {
     sources += [ "../Zephyr/SysHeapMalloc.cpp" ]
   }
+
+  cflags = [ "-Wconversion" ]
 }

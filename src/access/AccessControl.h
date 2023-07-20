@@ -78,36 +78,28 @@ public:
             virtual void Release() {}
 
             // Simple getters
-            virtual CHIP_ERROR GetAuthMode(AuthMode & authMode) const { return CHIP_NO_ERROR; }
-            virtual CHIP_ERROR GetFabricIndex(FabricIndex & fabricIndex) const { return CHIP_NO_ERROR; }
-            virtual CHIP_ERROR GetPrivilege(Privilege & privilege) const { return CHIP_NO_ERROR; }
+            virtual CHIP_ERROR GetAuthMode(AuthMode & authMode) const { return CHIP_ERROR_NOT_IMPLEMENTED; }
+            virtual CHIP_ERROR GetFabricIndex(FabricIndex & fabricIndex) const { return CHIP_ERROR_NOT_IMPLEMENTED; }
+            virtual CHIP_ERROR GetPrivilege(Privilege & privilege) const { return CHIP_ERROR_NOT_IMPLEMENTED; }
 
             // Simple setters
-            virtual CHIP_ERROR SetAuthMode(AuthMode authMode) { return CHIP_NO_ERROR; }
-            virtual CHIP_ERROR SetFabricIndex(FabricIndex fabricIndex) { return CHIP_NO_ERROR; }
-            virtual CHIP_ERROR SetPrivilege(Privilege privilege) { return CHIP_NO_ERROR; }
+            virtual CHIP_ERROR SetAuthMode(AuthMode authMode) { return CHIP_ERROR_NOT_IMPLEMENTED; }
+            virtual CHIP_ERROR SetFabricIndex(FabricIndex fabricIndex) { return CHIP_ERROR_NOT_IMPLEMENTED; }
+            virtual CHIP_ERROR SetPrivilege(Privilege privilege) { return CHIP_ERROR_NOT_IMPLEMENTED; }
 
             // Subjects
-            virtual CHIP_ERROR GetSubjectCount(size_t & count) const
-            {
-                count = 0;
-                return CHIP_NO_ERROR;
-            }
-            virtual CHIP_ERROR GetSubject(size_t index, NodeId & subject) const { return CHIP_NO_ERROR; }
-            virtual CHIP_ERROR SetSubject(size_t index, NodeId subject) { return CHIP_NO_ERROR; }
-            virtual CHIP_ERROR AddSubject(size_t * index, NodeId subject) { return CHIP_NO_ERROR; }
-            virtual CHIP_ERROR RemoveSubject(size_t index) { return CHIP_NO_ERROR; }
+            virtual CHIP_ERROR GetSubjectCount(size_t & count) const { return CHIP_ERROR_NOT_IMPLEMENTED; }
+            virtual CHIP_ERROR GetSubject(size_t index, NodeId & subject) const { return CHIP_ERROR_NOT_IMPLEMENTED; }
+            virtual CHIP_ERROR SetSubject(size_t index, NodeId subject) { return CHIP_ERROR_NOT_IMPLEMENTED; }
+            virtual CHIP_ERROR AddSubject(size_t * index, NodeId subject) { return CHIP_ERROR_NOT_IMPLEMENTED; }
+            virtual CHIP_ERROR RemoveSubject(size_t index) { return CHIP_ERROR_NOT_IMPLEMENTED; }
 
             // Targets
-            virtual CHIP_ERROR GetTargetCount(size_t & count) const
-            {
-                count = 0;
-                return CHIP_NO_ERROR;
-            }
-            virtual CHIP_ERROR GetTarget(size_t index, Target & target) const { return CHIP_NO_ERROR; }
-            virtual CHIP_ERROR SetTarget(size_t index, const Target & target) { return CHIP_NO_ERROR; }
-            virtual CHIP_ERROR AddTarget(size_t * index, const Target & target) { return CHIP_NO_ERROR; }
-            virtual CHIP_ERROR RemoveTarget(size_t index) { return CHIP_NO_ERROR; }
+            virtual CHIP_ERROR GetTargetCount(size_t & count) const { return CHIP_ERROR_NOT_IMPLEMENTED; }
+            virtual CHIP_ERROR GetTarget(size_t index, Target & target) const { return CHIP_ERROR_NOT_IMPLEMENTED; }
+            virtual CHIP_ERROR SetTarget(size_t index, const Target & target) { return CHIP_ERROR_NOT_IMPLEMENTED; }
+            virtual CHIP_ERROR AddTarget(size_t * index, const Target & target) { return CHIP_ERROR_NOT_IMPLEMENTED; }
+            virtual CHIP_ERROR RemoveTarget(size_t index) { return CHIP_ERROR_NOT_IMPLEMENTED; }
         };
 
         Entry() = default;
@@ -342,7 +334,7 @@ public:
         virtual void Release() {}
 
         virtual CHIP_ERROR Init() { return CHIP_NO_ERROR; }
-        virtual CHIP_ERROR Finish() { return CHIP_NO_ERROR; }
+        virtual void Finish() {}
 
         // Capabilities
         virtual CHIP_ERROR GetMaxEntriesPerFabric(size_t & value) const
@@ -430,7 +422,7 @@ public:
     /**
      * Deinitialize the access control module. Must be called when finished.
      */
-    CHIP_ERROR Finish();
+    void Finish();
 
     // Capabilities
     CHIP_ERROR GetMaxEntriesPerFabric(size_t & value) const
@@ -579,6 +571,32 @@ public:
     }
 
     /**
+     * @brief Remove all ACL entries for the given fabricIndex
+     *
+     * @param[in] fabricIndex fabric index for which to remove all entries
+     */
+    CHIP_ERROR DeleteAllEntriesForFabric(FabricIndex fabricIndex)
+    {
+        VerifyOrReturnError(IsInitialized(), CHIP_ERROR_INCORRECT_STATE);
+
+        CHIP_ERROR stickyError = CHIP_NO_ERROR;
+
+        // Remove access control entries in reverse order (it could be any order, but reverse order
+        // will cause less churn in persistent storage).
+        size_t aclCount = 0;
+        if (GetEntryCount(fabricIndex, aclCount) == CHIP_NO_ERROR)
+        {
+            while (aclCount)
+            {
+                CHIP_ERROR err = DeleteEntry(nullptr, fabricIndex, --aclCount);
+                stickyError    = (stickyError == CHIP_NO_ERROR) ? err : stickyError;
+            }
+        }
+
+        return stickyError;
+    }
+
+    /**
      * Iterates over entries in the access control list.
      *
      * @param [in]  fabric   Fabric over which to iterate entries.
@@ -657,7 +675,7 @@ void SetAccessControl(AccessControl & accessControl);
  *
  * Calls to this function must be synchronized externally.
  */
-void ResetAccessControl();
+void ResetAccessControlToDefault();
 
 } // namespace Access
 } // namespace chip

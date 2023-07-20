@@ -14,8 +14,8 @@
  *    See the License for the specific language governing permissions and
  *    limitations under the License.
  */
-#include <init.h>
-#include <shell/shell.h>
+#include <zephyr/init.h>
+#include <zephyr/shell/shell.h>
 
 #include <lib/core/CHIPError.h>
 #include <lib/shell/Engine.h>
@@ -29,7 +29,7 @@ static int cmd_matter(const struct shell * shell, size_t argc, char ** argv)
     return (Engine::Root().ExecCommand(argc - 1, argv + 1) == CHIP_NO_ERROR) ? 0 : -ENOEXEC;
 }
 
-static int RegisterCommands(const struct device * dev)
+static int RegisterCommands()
 {
     Engine::Root().RegisterDefaultCommands();
     return 0;

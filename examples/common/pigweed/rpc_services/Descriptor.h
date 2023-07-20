@@ -20,7 +20,6 @@
 
 #include "descriptor_service/descriptor_service.rpc.pb.h"
 
-#include <app-common/zap-generated/af-structs.h>
 #include <app-common/zap-generated/cluster-objects.h>
 #include <app-common/zap-generated/ids/Attributes.h>
 #include <app-common/zap-generated/ids/Clusters.h>
@@ -83,7 +82,7 @@ public:
                     EndpointId endpoint_id = emberAfEndpointFromIndex(index);
                     if (endpoint_id == 0)
                         continue;
-                    chip_rpc_Endpoint out{ endpoint : endpoint_id };
+                    chip_rpc_Endpoint out{ .endpoint = endpoint_id };
                     writer.Write(out);
                 }
             }
@@ -99,7 +98,7 @@ private:
         for (uint8_t cluster_index = 0; cluster_index < cluster_count; cluster_index++)
         {
             const EmberAfCluster * cluster = emberAfGetNthCluster(endpoint, cluster_index, server);
-            chip_rpc_Cluster out{ cluster_id : cluster->clusterId };
+            chip_rpc_Cluster out{ .cluster_id = cluster->clusterId };
             writer.Write(out);
         }
         writer.Finish();

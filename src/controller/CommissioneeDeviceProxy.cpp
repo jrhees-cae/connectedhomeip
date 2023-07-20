@@ -26,8 +26,6 @@
 
 #include <controller/CommissioneeDeviceProxy.h>
 
-#include <controller-clusters/zap-generated/CHIPClusters.h>
-
 #include <app/CommandSender.h>
 #include <app/ReadPrepareParams.h>
 #include <app/util/DataModelHandler.h>
@@ -56,16 +54,16 @@ void CommissioneeDeviceProxy::OnSessionReleased()
     mState = ConnectionState::NotConnected;
 }
 
-CHIP_ERROR CommissioneeDeviceProxy::CloseSession()
+void CommissioneeDeviceProxy::CloseSession()
 {
-    ReturnErrorCodeIf(mState != ConnectionState::SecureConnected, CHIP_ERROR_INCORRECT_STATE);
+    VerifyOrReturn(mState == ConnectionState::SecureConnected);
     if (mSecureSession)
     {
-        mSessionManager->ExpirePairing(mSecureSession.Get().Value());
+        mSecureSession->AsSecureSession()->MarkForEviction();
     }
+
     mState = ConnectionState::NotConnected;
     mPairing.Clear();
-    return CHIP_NO_ERROR;
 }
 
 CHIP_ERROR CommissioneeDeviceProxy::UpdateDeviceData(const Transport::PeerAddress & addr,
@@ -73,11 +71,9 @@ CHIP_ERROR CommissioneeDeviceProxy::UpdateDeviceData(const Transport::PeerAddres
 {
     mDeviceAddress = addr;
 
-    mRemoteMRPConfig = config;
-
     // Initialize PASE session state with any MRP parameters that DNS-SD has provided.
     // It can be overridden by PASE session protocol messages that include MRP parameters.
-    mPairing.SetRemoteMRPConfig(mRemoteMRPConfig);
+    mPairing.SetRemoteMRPConfig(config);
 
     if (!mSecureSession)
     {
@@ -97,6 +93,8 @@ CHIP_ERROR CommissioneeDeviceProxy::UpdateDeviceData(const Transport::PeerAddres
 CHIP_ERROR CommissioneeDeviceProxy::SetConnected(const SessionHandle & session)
 {
     VerifyOrReturnError(mState == ConnectionState::Connecting, CHIP_ERROR_INCORRECT_STATE);
+    VerifyOrReturnError(session->AsSecureSession()->IsPASESession(), CHIP_ERROR_INVALID_ARGUMENT);
+
     if (!mSecureSession.Grab(session))
     {
         mState = ConnectionState::NotConnected;
@@ -107,7 +105,14 @@ CHIP_ERROR CommissioneeDeviceProxy::SetConnected(const SessionHandle & session)
     return CHIP_NO_ERROR;
 }
 
-CommissioneeDeviceProxy::~CommissioneeDeviceProxy() {}
+CommissioneeDeviceProxy::~CommissioneeDeviceProxy()
+{
+    auto session = GetSecureSession();
+    if (session.HasValue())
+    {
+        session.Value()->AsSecureSession()->MarkForEviction();
+    }
+}
 
 CHIP_ERROR CommissioneeDeviceProxy::SetPeerId(ByteSpan rcac, ByteSpan noc)
 {

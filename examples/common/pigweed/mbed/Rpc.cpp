@@ -28,7 +28,7 @@
 #include "pw_sys_io/sys_io.h"
 #include "pw_sys_io_mbed/init.h"
 
-#include <support/logging/CHIPLogging.h>
+#include <lib/support/logging/CHIPLogging.h>
 
 #ifdef CHIP_PW_RPC_ECHO_PROTO
 #include "pw_rpc/echo_service_nanopb.h"
@@ -123,10 +123,10 @@ Thread * Init()
 
     ChipLogProgress(NotSpecified, "RPC service starting...\r\n");
 
-    auto error = rpcThread.start(RunRpcService);
+    long error = rpcThread.start(RunRpcService);
     if (error != osOK)
     {
-        ChipLogError(NotSpecified, "Run RPC service failed[%d]", error);
+        ChipLogError(NotSpecified, "Run RPC service failed[%ld]", error);
         return NULL;
     }
 

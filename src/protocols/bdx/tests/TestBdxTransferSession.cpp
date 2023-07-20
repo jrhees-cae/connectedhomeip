@@ -6,7 +6,7 @@
 
 #include <nlunit-test.h>
 
-#include <lib/core/CHIPTLV.h>
+#include <lib/core/TLV.h>
 #include <lib/support/BufferReader.h>
 #include <lib/support/CHIPMem.h>
 #include <lib/support/CodeUtils.h>
@@ -28,7 +28,7 @@ const TLV::Tag tlvListTag = TLV::ProfileTag(7777, 8888);
 } // anonymous namespace
 
 // Helper method for generating a complete TLV structure with a list containing a single tag and string
-CHIP_ERROR WriteChipTLVString(uint8_t * buf, uint32_t bufLen, const char * data, uint32_t & written)
+CHIP_ERROR WriteTLVString(uint8_t * buf, uint32_t bufLen, const char * data, uint32_t & written)
 {
     written = 0;
     TLV::TLVWriter writer;
@@ -124,7 +124,7 @@ void VerifyStatusReport(nlTestSuite * inSuite, void * inContext, const System::P
     err = report.Parse(std::move(msgCopy));
     NL_TEST_ASSERT(inSuite, err == CHIP_NO_ERROR);
     NL_TEST_ASSERT(inSuite, report.GetGeneralCode() == SecureChannel::GeneralStatusCode::kFailure);
-    NL_TEST_ASSERT(inSuite, report.GetProtocolId() == Protocols::BDX::Id.ToFullyQualifiedSpecForm());
+    NL_TEST_ASSERT(inSuite, report.GetProtocolId() == Protocols::BDX::Id);
     NL_TEST_ASSERT(inSuite, report.GetProtocolCode() == static_cast<uint16_t>(expectedCode));
 }
 
@@ -183,10 +183,16 @@ void SendAndVerifyTransferInit(nlTestSuite * inSuite, void * inContext, Transfer
         NL_TEST_ASSERT(inSuite, outEvent.transferInitData.MetadataLength == initData.MetadataLength);
         if (outEvent.transferInitData.MetadataLength == initData.MetadataLength)
         {
-            // Only check that metadata buffers match. The OutputEvent can still be inspected when this function returns to parse
-            // the metadata and verify that it matches.
-            NL_TEST_ASSERT(
-                inSuite, !memcmp(initData.Metadata, outEvent.transferInitData.Metadata, outEvent.transferInitData.MetadataLength));
+            // Even if initData.MetadataLength is 0, it is still technically undefined behaviour to call memcmp with a null
+            bool isNullAndLengthZero = initData.Metadata == nullptr && initData.MetadataLength == 0;
+            if (!isNullAndLengthZero)
+            {
+                // Only check that metadata buffers match. The OutputEvent can still be inspected when this function returns to
+                // parse the metadata and verify that it matches.
+                NL_TEST_ASSERT(
+                    inSuite,
+                    !memcmp(initData.Metadata, outEvent.transferInitData.Metadata, outEvent.transferInitData.MetadataLength));
+            }
         }
         else
         {
@@ -239,11 +245,16 @@ void SendAndVerifyAcceptMsg(nlTestSuite * inSuite, void * inContext, TransferSes
         NL_TEST_ASSERT(inSuite, outEvent.transferAcceptData.MetadataLength == acceptData.MetadataLength);
         if (outEvent.transferAcceptData.MetadataLength == acceptData.MetadataLength)
         {
-            // Only check that metadata buffers match. The OutputEvent can still be inspected when this function returns to parse
-            // the metadata and verify that it matches.
-            NL_TEST_ASSERT(
-                inSuite,
-                !memcmp(acceptData.Metadata, outEvent.transferAcceptData.Metadata, outEvent.transferAcceptData.MetadataLength));
+            // Even if acceptData.MetadataLength is 0, it is still technically undefined behaviour to call memcmp with a null
+            bool isNullAndLengthZero = acceptData.Metadata == nullptr && acceptData.MetadataLength == 0;
+            if (!isNullAndLengthZero)
+            {
+                // Only check that metadata buffers match. The OutputEvent can still be inspected when this function returns to
+                // parse the metadata and verify that it matches.
+                NL_TEST_ASSERT(
+                    inSuite,
+                    !memcmp(acceptData.Metadata, outEvent.transferAcceptData.Metadata, outEvent.transferAcceptData.MetadataLength));
+            }
         }
         else
         {
@@ -387,7 +398,7 @@ void TestInitiatingReceiverReceiverDrive(nlTestSuite * inSuite, void * inContext
     uint8_t tlvBuf[64]    = { 0 };
     char metadataStr[11]  = { "hi_dad.txt" };
     uint32_t bytesWritten = 0;
-    err                   = WriteChipTLVString(tlvBuf, sizeof(tlvBuf), metadataStr, bytesWritten);
+    err                   = WriteTLVString(tlvBuf, sizeof(tlvBuf), metadataStr, bytesWritten);
     NL_TEST_ASSERT(inSuite, err == CHIP_NO_ERROR);
     uint16_t metadataSize = static_cast<uint16_t>(bytesWritten & 0x0000FFFF);
 
@@ -474,7 +485,7 @@ void TestInitiatingSenderSenderDrive(nlTestSuite * inSuite, void * inContext)
     uint8_t tlvBuf[64]    = { 0 };
     char metadataStr[11]  = { "hi_dad.txt" };
     uint32_t bytesWritten = 0;
-    err                   = WriteChipTLVString(tlvBuf, sizeof(tlvBuf), metadataStr, bytesWritten);
+    err                   = WriteTLVString(tlvBuf, sizeof(tlvBuf), metadataStr, bytesWritten);
     NL_TEST_ASSERT(inSuite, err == CHIP_NO_ERROR);
     uint16_t metadataSize = static_cast<uint16_t>(bytesWritten & 0x0000FFFF);
 

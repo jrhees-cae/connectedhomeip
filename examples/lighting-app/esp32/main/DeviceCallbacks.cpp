@@ -1,6 +1,6 @@
 /*
  *
- *    Copyright (c) 2021 Project CHIP Authors
+ *    Copyright (c) 2021-2023 Project CHIP Authors
  *    All rights reserved.
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,18 +15,19 @@
  *    See the License for the specific language governing permissions and
  *    limitations under the License.
  */
-
-/**
- * @file DeviceCallbacks.cpp
- *
- * Implements all the callbacks to the application from the CHIP Stack
- *
- **/
+#include "AppTask.h"
 
 #include "DeviceCallbacks.h"
+#include "Globals.h"
 #include "LEDWidget.h"
 
 #include <app/util/util.h>
+
+#include <app-common/zap-generated/attributes/Accessors.h>
+#include <app-common/zap-generated/ids/Attributes.h>
+#include <app-common/zap-generated/ids/Clusters.h>
+#include <app/ConcreteAttributePath.h>
+#include <lib/support/logging/CHIPLogging.h>
 
 static const char * TAG = "light-app-callbacks";
 
@@ -40,8 +41,8 @@ using namespace chip::app::Clusters;
 void AppDeviceCallbacks::PostAttributeChangeCallback(EndpointId endpointId, ClusterId clusterId, AttributeId attributeId,
                                                      uint8_t type, uint16_t size, uint8_t * value)
 {
-    ESP_LOGI(TAG, "PostAttributeChangeCallback - Cluster ID: '0x%04x', EndPoint ID: '0x%02x', Attribute ID: '0x%04x'", clusterId,
-             endpointId, attributeId);
+    ESP_LOGI(TAG, "PostAttributeChangeCallback - Cluster ID: '0x%" PRIx32 "', EndPoint ID: '0x%x', Attribute ID: '0x%" PRIx32 "'",
+             clusterId, endpointId, attributeId);
 
     switch (clusterId)
     {
@@ -60,7 +61,7 @@ void AppDeviceCallbacks::PostAttributeChangeCallback(EndpointId endpointId, Clus
 #endif
 
     default:
-        ESP_LOGI(TAG, "Unhandled cluster ID: %d", clusterId);
+        ESP_LOGI(TAG, "Unhandled cluster ID: %" PRIu32, clusterId);
         break;
     }
 
@@ -69,7 +70,8 @@ void AppDeviceCallbacks::PostAttributeChangeCallback(EndpointId endpointId, Clus
 
 void AppDeviceCallbacks::OnOnOffPostAttributeChangeCallback(EndpointId endpointId, AttributeId attributeId, uint8_t * value)
 {
-    VerifyOrExit(attributeId == OnOff::Attributes::OnOff::Id, ESP_LOGI(TAG, "Unhandled Attribute ID: '0x%04x", attributeId));
+    VerifyOrExit(attributeId == OnOff::Attributes::OnOff::Id,
+                 ESP_LOGI(TAG, "Unhandled Attribute ID: '0x%" PRIx32 "'", attributeId));
     VerifyOrExit(endpointId == 1, ESP_LOGE(TAG, "Unexpected EndPoint ID: `0x%02x'", endpointId));
 
     AppLED.Set(*value);
@@ -81,7 +83,7 @@ exit:
 void AppDeviceCallbacks::OnLevelControlAttributeChangeCallback(EndpointId endpointId, AttributeId attributeId, uint8_t * value)
 {
     VerifyOrExit(attributeId == LevelControl::Attributes::CurrentLevel::Id,
-                 ESP_LOGI(TAG, "Unhandled Attribute ID: '0x%04x", attributeId));
+                 ESP_LOGI(TAG, "Unhandled Attribute ID: '0x%" PRIx32 "'", attributeId));
     VerifyOrExit(endpointId == 1, ESP_LOGE(TAG, "Unexpected EndPoint ID: `0x%02x'", endpointId));
 
     AppLED.SetBrightness(*value);
@@ -94,23 +96,23 @@ exit:
 #if CONFIG_LED_TYPE_RMT
 void AppDeviceCallbacks::OnColorControlAttributeChangeCallback(EndpointId endpointId, AttributeId attributeId, uint8_t * value)
 {
+    using namespace ColorControl::Attributes;
+
     uint8_t hue, saturation;
 
-    VerifyOrExit(attributeId == ColorControl::Attributes::CurrentHue::Id ||
-                     attributeId == ColorControl::Attributes::CurrentSaturation::Id,
-                 ESP_LOGI(TAG, "Unhandled AttributeId ID: '0x%04x", attributeId));
+    VerifyOrExit(attributeId == CurrentHue::Id || attributeId == CurrentSaturation::Id,
+                 ESP_LOGI(TAG, "Unhandled AttributeId ID: '0x%" PRIx32 "'", attributeId));
     VerifyOrExit(endpointId == 1, ESP_LOGE(TAG, "Unexpected EndPoint ID: `0x%02x'", endpointId));
 
-    if (attributeId == ColorControl::Attributes::CurrentHue::Id)
+    if (attributeId == CurrentHue::Id)
     {
         hue = *value;
-        emberAfReadServerAttribute(endpointId, ColorControl::Id, ColorControl::Attributes::CurrentSaturation::Id, &saturation,
-                                   sizeof(uint8_t));
+        CurrentSaturation::Get(endpointId, &saturation);
     }
     else
     {
         saturation = *value;
-        emberAfReadServerAttribute(endpointId, ColorControl::Id, ColorControl::Attributes::CurrentHue::Id, &hue, sizeof(uint8_t));
+        CurrentHue::Get(endpointId, &hue);
     }
     AppLED.SetColor(hue, saturation);
 
@@ -118,3 +120,33 @@ exit:
     return;
 }
 #endif // CONFIG_LED_TYPE_RMT
+
+/** @brief OnOff Cluster Init
+ *
+ * This function is called when a specific cluster is initialized. It gives the
+ * application an opportunity to take care of cluster initialization procedures.
+ * It is called exactly once for each endpoint where cluster is present.
+ *
+ * @param endpoint   Ver.: always
+ *
+ * emberAfOnOffClusterInitCallback happens before the stack initialize the cluster
+ * attributes to the default value.
+ * The logic here expects something similar to the deprecated Plugins callback
+ * emberAfPluginOnOffClusterServerPostInitCallback.
+ *
+ */
+void emberAfOnOffClusterInitCallback(EndpointId endpoint)
+{
+    ESP_LOGI(TAG, "emberAfOnOffClusterInitCallback");
+    GetAppTask().UpdateClusterState();
+}
+
+void AppDeviceCallbacksDelegate::OnIPv4ConnectivityEstablished()
+{
+    wifiLED.Set(true);
+}
+
+void AppDeviceCallbacksDelegate::OnIPv4ConnectivityLost()
+{
+    wifiLED.Set(false);
+}

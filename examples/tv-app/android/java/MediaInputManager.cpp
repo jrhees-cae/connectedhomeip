@@ -72,7 +72,7 @@ CHIP_ERROR MediaInputManager::HandleGetInputList(chip::app::AttributeValueEncode
         jint size = env->GetArrayLength(inputArray);
         for (int i = 0; i < size; i++)
         {
-            app::Clusters::MediaInput::Structs::InputInfo::Type mediaInput;
+            app::Clusters::MediaInput::Structs::InputInfoStruct::Type mediaInput;
 
             jobject inputObj  = env->GetObjectArrayElement(inputArray, i);
             jclass inputClass = env->GetObjectClass(inputObj);
@@ -261,7 +261,8 @@ void MediaInputManager::InitializeWithObjects(jobject managerObject)
     jclass MediaInputManagerClass = env->GetObjectClass(managerObject);
     VerifyOrReturn(MediaInputManagerClass != nullptr, ChipLogError(Zcl, "Failed to get MediaInputManager Java class"));
 
-    mGetInputListMethod = env->GetMethodID(MediaInputManagerClass, "getInputList", "()[Lcom/tcl/chip/tvapp/MediaInputInfo;");
+    mGetInputListMethod =
+        env->GetMethodID(MediaInputManagerClass, "getInputList", "()[Lcom/matter/tv/server/tvapp/MediaInputInfo;");
     if (mGetInputListMethod == nullptr)
     {
         ChipLogError(Zcl, "Failed to access MediaInputManager 'getInputList' method");

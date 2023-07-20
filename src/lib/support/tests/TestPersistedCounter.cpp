@@ -45,6 +45,7 @@
 #include <lib/support/DefaultStorageKeyAllocator.h>
 #include <lib/support/PersistedCounter.h>
 #include <lib/support/TestPersistentStorageDelegate.h>
+#include <lib/support/UnitTestContext.h>
 #include <lib/support/UnitTestRegistration.h>
 #include <platform/ConfigurationManager.h>
 #include <platform/PersistedStorage.h>
@@ -100,8 +101,7 @@ static void CheckOOB(nlTestSuite * inSuite, void * inContext)
 
     chip::PersistedCounter<uint64_t> counter;
 
-    auto testKey   = &chip::DefaultStorageKeyAllocator::IMEventNumber;
-    CHIP_ERROR err = counter.Init(sPersistentStore, testKey, 0x10000);
+    CHIP_ERROR err = counter.Init(sPersistentStore, chip::DefaultStorageKeyAllocator::IMEventNumber(), 0x10000);
     NL_TEST_ASSERT(inSuite, err == CHIP_NO_ERROR);
 
     auto value = counter.GetValue();
@@ -119,9 +119,7 @@ static void CheckReboot(nlTestSuite * inSuite, void * inContext)
     // When initializing the first time out of the box, we should have
     // a count of 0.
 
-    auto testKey = &chip::DefaultStorageKeyAllocator::IMEventNumber;
-
-    CHIP_ERROR err = counter.Init(sPersistentStore, testKey, 0x10000);
+    CHIP_ERROR err = counter.Init(sPersistentStore, chip::DefaultStorageKeyAllocator::IMEventNumber(), 0x10000);
     NL_TEST_ASSERT(inSuite, err == CHIP_NO_ERROR);
 
     auto value = counter.GetValue();
@@ -129,7 +127,7 @@ static void CheckReboot(nlTestSuite * inSuite, void * inContext)
 
     // Now we "reboot", and we should get a count of 0x10000.
 
-    err = counter2.Init(sPersistentStore, testKey, 0x10000);
+    err = counter2.Init(sPersistentStore, chip::DefaultStorageKeyAllocator::IMEventNumber(), 0x10000);
     NL_TEST_ASSERT(inSuite, err == CHIP_NO_ERROR);
 
     value = counter2.GetValue();
@@ -147,8 +145,7 @@ static void CheckWriteNextCounterStart(nlTestSuite * inSuite, void * inContext)
     // When initializing the first time out of the box, we should have
     // a count of 0.
 
-    auto testKey   = &chip::DefaultStorageKeyAllocator::IMEventNumber;
-    CHIP_ERROR err = counter.Init(sPersistentStore, testKey, 0x10000);
+    CHIP_ERROR err = counter.Init(sPersistentStore, chip::DefaultStorageKeyAllocator::IMEventNumber(), 0x10000);
     NL_TEST_ASSERT(inSuite, err == CHIP_NO_ERROR);
 
     auto value = counter.GetValue();
@@ -190,24 +187,9 @@ static const nlTest sTests[] = {
 
 int TestPersistedCounter()
 {
-    TestPersistedCounterContext context;
-
-    CHIP_ERROR error = chip::Platform::MemoryInit();
-    if (error != CHIP_NO_ERROR)
-    {
-        return EXIT_FAILURE;
-    }
-
     nlTestSuite theSuite = { "chip-persisted-storage", &sTests[0], TestSetup, TestTeardown };
 
-    // Run test suite against one context
-    nlTestRunner(&theSuite, &context);
-
-    int r = nlTestRunnerStats(&theSuite);
-
-    chip::Platform::MemoryShutdown();
-
-    return r;
+    return chip::ExecuteTestsWithContext<TestPersistedCounterContext>(&theSuite);
 }
 
 CHIP_REGISTER_TEST_SUITE(TestPersistedCounter);

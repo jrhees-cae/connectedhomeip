@@ -35,14 +35,19 @@ static_library("helpers") {
     "TestInetCommonOptions.h",
     "TestInetCommonPosix.cpp",
     "TestInetLayerCommon.cpp",
-    "TestSetupFaultInjection.h",
-    "TestSetupFaultInjectionPosix.cpp",
     "TestSetupSignalling.h",
     "TestSetupSignallingPosix.cpp",
   ]
 
   if (current_os != "mbed") {
     sources += [ "TestInetLayer.cpp" ]
+  }
+
+  if (chip_with_nlfaultinjection) {
+    sources += [
+      "TestSetupFaultInjection.h",
+      "TestSetupFaultInjectionPosix.cpp",
+    ]
   }
 
   cflags = [ "-Wconversion" ]
@@ -64,10 +69,12 @@ chip_test_suite("tests") {
     ":helpers",
     "${chip_root}/src/inet",
     "${chip_root}/src/lib/core",
+    "${chip_root}/src/lib/support:testing",
     "${nlunit_test_root}:nlunit-test",
   ]
 
   test_sources = [
+    "TestBasicPacketFilters.cpp",
     "TestInetAddress.cpp",
     "TestInetErrorStr.cpp",
   ]
@@ -85,4 +92,6 @@ chip_test_suite("tests") {
     # TODO: This test does not seem executed
     sources += [ "TestLwIPDNS.cpp" ]
   }
+
+  cflags = [ "-Wconversion" ]
 }

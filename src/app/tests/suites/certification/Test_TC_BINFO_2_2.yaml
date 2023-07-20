@@ -1,0 +1,151 @@
+# Copyright (c) 2023 Project CHIP Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: 12.2.2. [TC-BINFO-2.2] Events [DUT-Server]
+
+PICS:
+    - BINFO.S
+
+config:
+    nodeId: 0x12344321
+    cluster: "Basic Information"
+    endpoint: 0
+
+tests:
+    - label: "Step 0: Wait for the commissioned device to be retrieved"
+      cluster: "DelayCommands"
+      command: "WaitForCommissionee"
+      arguments:
+          values:
+              - name: "nodeId"
+                value: nodeId
+    - label:
+          "Precondition: TH reads SoftwareVersion attribute from DUT and saves
+          for future use"
+      PICS: BINFO.S.A0009
+      command: "readAttribute"
+      attribute: "SoftwareVersion"
+      response:
+          saveAs: SoftwareVersionValue
+
+    - label:
+          "Precondition: TH reads Reachable attribute from DUT and saves for
+          future use"
+      PICS: BINFO.S.A0011
+      command: "readAttribute"
+      attribute: "Reachable"
+      response:
+          value: true
+          saveAs: ReachableValue
+
+    - label: "Precondition: TH saves the FabricIndex during commissioning"
+      command: "readAttribute"
+      cluster: "Operational Credentials"
+      attribute: "CurrentFabricIndex"
+      response:
+          saveAs: CurrentFabricIndexValue
+
+    - label:
+          "Precondition: TH subscribes to StartUp event on the Basic Information
+          cluster of the DUT"
+      PICS: BINFO.S.E00
+      command: "subscribeEvent"
+      event: "StartUp"
+      minInterval: 30
+      maxInterval: 100
+      response:
+          constraints:
+              type: StartUp
+
+    - label:
+          "Precondition: TH subscribes to ShutDown event on the Basic
+          Information cluster of the DUT"
+      PICS: BINFO.S.E01
+      command: "subscribeEvent"
+      event: "ShutDown"
+      minInterval: 30
+      maxInterval: 100
+
+    - label:
+          "Precondition: TH subscribes to Leave event on the Basic Information
+          cluster of the DUT"
+      PICS: BINFO.S.E02
+      command: "subscribeEvent"
+      event: "Leave"
+      minInterval: 30
+      maxInterval: 100
+
+    ### DUT TurnOff
+    - label: "Step 1: Reboot the DUT"
+      PICS: PICS_SDK_CI_ONLY
+      cluster: "SystemCommands"
+      command: "Reboot"
+
+    - label: "Step 1: Reboot target device(DUT)"
+      verification: |
+          Did the DUT successfully reboot?
+      cluster: "LogCommands"
+      command: "UserPrompt"
+      PICS: PICS_SKIP_SAMPLE_APP
+      arguments:
+          values:
+              - name: "message"
+                value: "Please reboot the DUT and enter 'y' after DUT starts"
+              - name: "expectedValue"
+                value: "y"
+
+    - label: "Wait for the commissioned device to be retrieved"
+      cluster: "DelayCommands"
+      command: "WaitForCommissionee"
+      arguments:
+          values:
+              - name: "nodeId"
+                value: nodeId
+
+    - label: "Step 2: TH reads the StartUp event from DUT"
+      PICS: BINFO.S.E00
+      command: "readEvent"
+      event: "StartUp"
+      response:
+          value: { SoftwareVersion: SoftwareVersionValue }
+
+    - label: "Verify that StartUp event has priority set as CRITICAL"
+      cluster: "LogCommands"
+      command: "UserPrompt"
+      PICS: PICS_SKIP_SAMPLE_APP && BINFO.S.E00
+      arguments:
+          values:
+              - name: "message"
+                value: "If priority set as CRITICAL enter 'y' for success"
+              - name: "expectedValue"
+                value: "y"
+
+    - label:
+          "Step 3: TH subscribes to the ShutDown event on the DUT. Shutdown DUT."
+      PICS: BINFO.S.E01
+      command: "subscribeEvent"
+      event: "ShutDown"
+      minInterval: 30
+      maxInterval: 100
+
+    - label: "Verify that ShutDown event has priority set as CRITICAL"
+      cluster: "LogCommands"
+      command: "UserPrompt"
+      PICS: PICS_SKIP_SAMPLE_APP && BINFO.S.E01
+      arguments:
+          values:
+              - name: "message"
+                value: "If priority set as CRITICAL enter 'y' for success"
+              - name: "expectedValue"
+                value: "y"

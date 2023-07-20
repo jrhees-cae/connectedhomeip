@@ -49,9 +49,8 @@ public:
     void Shutdown() {}
 
     // AttributePersistenceProvider implementation.
-    CHIP_ERROR WriteValue(const ConcreteAttributePath & aPath, const EmberAfAttributeMetadata * aMetadata,
-                          const ByteSpan & aValue) override;
-    CHIP_ERROR ReadValue(const ConcreteAttributePath & aPath, const EmberAfAttributeMetadata * aMetadata,
+    CHIP_ERROR WriteValue(const ConcreteAttributePath & aPath, const ByteSpan & aValue) override;
+    CHIP_ERROR ReadValue(const ConcreteAttributePath & aPath, EmberAfAttributeType aType, size_t aSize,
                          MutableByteSpan & aValue) override;
 
 protected:

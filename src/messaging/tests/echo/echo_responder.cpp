@@ -81,9 +81,6 @@ int main(int argc, char * argv[])
 
     InitializeChip();
 
-    err = gFabricTable.Init(&gStorage);
-    SuccessOrExit(err);
-
     if (useTCP)
     {
         err = gTCPManager.Init(chip::Transport::TcpListenParameters(chip::DeviceLayer::TCPEndPointManager())
@@ -96,7 +93,7 @@ int main(int argc, char * argv[])
         SuccessOrExit(err);
 
         err = gSessionManager.Init(&chip::DeviceLayer::SystemLayer(), &gTCPManager, &gMessageCounterManager, &gStorage,
-                                   &gFabricTable);
+                                   &gFabricTable, gSessionKeystore);
         SuccessOrExit(err);
     }
     else
@@ -106,7 +103,7 @@ int main(int argc, char * argv[])
         SuccessOrExit(err);
 
         err = gSessionManager.Init(&chip::DeviceLayer::SystemLayer(), &gUDPManager, &gMessageCounterManager, &gStorage,
-                                   &gFabricTable);
+                                   &gFabricTable, gSessionKeystore);
         SuccessOrExit(err);
     }
 

@@ -22,31 +22,32 @@
 namespace chip {
 namespace app {
 
-CHIP_ERROR DefaultAttributePersistenceProvider::WriteValue(const ConcreteAttributePath & aPath,
-                                                           const EmberAfAttributeMetadata * aMetadata, const ByteSpan & aValue)
+CHIP_ERROR DefaultAttributePersistenceProvider::WriteValue(const ConcreteAttributePath & aPath, const ByteSpan & aValue)
 {
     VerifyOrReturnError(mStorage != nullptr, CHIP_ERROR_INCORRECT_STATE);
 
     // TODO: we may want to have a small cache for values that change a lot, so
-    // we only write them once a bunch of changes happen or on timer or
-    // shutdown.
-    DefaultStorageKeyAllocator key;
+    //  we only write them once a bunch of changes happen or on timer or
+    //  shutdown.
     if (!CanCastTo<uint16_t>(aValue.size()))
     {
         return CHIP_ERROR_BUFFER_TOO_SMALL;
     }
-    return mStorage->SyncSetKeyValue(key.AttributeValue(aPath), aValue.data(), static_cast<uint16_t>(aValue.size()));
+    return mStorage->SyncSetKeyValue(
+        DefaultStorageKeyAllocator::AttributeValue(aPath.mEndpointId, aPath.mClusterId, aPath.mAttributeId).KeyName(),
+        aValue.data(), static_cast<uint16_t>(aValue.size()));
 }
 
-CHIP_ERROR DefaultAttributePersistenceProvider::ReadValue(const ConcreteAttributePath & aPath,
-                                                          const EmberAfAttributeMetadata * aMetadata, MutableByteSpan & aValue)
+CHIP_ERROR DefaultAttributePersistenceProvider::ReadValue(const ConcreteAttributePath & aPath, EmberAfAttributeType aType,
+                                                          size_t aSize, MutableByteSpan & aValue)
 {
     VerifyOrReturnError(mStorage != nullptr, CHIP_ERROR_INCORRECT_STATE);
 
-    DefaultStorageKeyAllocator key;
     uint16_t size = static_cast<uint16_t>(min(aValue.size(), static_cast<size_t>(UINT16_MAX)));
-    ReturnErrorOnFailure(mStorage->SyncGetKeyValue(key.AttributeValue(aPath), aValue.data(), size));
-    EmberAfAttributeType type = aMetadata->attributeType;
+    ReturnErrorOnFailure(mStorage->SyncGetKeyValue(
+        DefaultStorageKeyAllocator::AttributeValue(aPath.mEndpointId, aPath.mClusterId, aPath.mAttributeId).KeyName(),
+        aValue.data(), size));
+    EmberAfAttributeType type = aType;
     if (emberAfIsStringAttributeType(type))
     {
         // Ensure that we've read enough bytes that we are not ending up with
@@ -64,7 +65,7 @@ CHIP_ERROR DefaultAttributePersistenceProvider::ReadValue(const ConcreteAttribut
     else
     {
         // Ensure we got the expected number of bytes for all other types.
-        VerifyOrReturnError(size == aMetadata->size, CHIP_ERROR_INCORRECT_STATE);
+        VerifyOrReturnError(size == aSize, CHIP_ERROR_INVALID_ARGUMENT);
     }
     aValue.reduce_size(size);
     return CHIP_NO_ERROR;

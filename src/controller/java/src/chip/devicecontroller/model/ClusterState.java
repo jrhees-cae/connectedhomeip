@@ -17,29 +17,58 @@
  */
 package chip.devicecontroller.model;
 
-import androidx.annotation.Nullable;
+import java.util.ArrayList;
 import java.util.Map;
+import java.util.Optional;
+import javax.annotation.Nullable;
 
 /** Class for tracking CHIP cluster state in a hierarchical manner. */
 public final class ClusterState {
   private Map<Long, AttributeState> attributes;
+  private Map<Long, ArrayList<EventState>> events;
+  private Optional<Long> dataVersion;
 
-  public ClusterState(Map<Long, AttributeState> attributes) {
+  public ClusterState(
+      Map<Long, AttributeState> attributes, Map<Long, ArrayList<EventState>> events) {
     this.attributes = attributes;
+    this.events = events;
+    this.dataVersion = Optional.empty();
   }
 
   public Map<Long, AttributeState> getAttributeStates() {
     return attributes;
   }
 
+  public Map<Long, ArrayList<EventState>> getEventStates() {
+    return events;
+  }
+
+  public void setDataVersion(long version) {
+    dataVersion = Optional.of(version);
+  }
+
+  public Optional<Long> getDataVersion() {
+    return dataVersion;
+  }
+
   /**
-   * Convenience utility for getting an {@code ClusterState}.
+   * Convenience utility for getting an {@code AttributeState}.
    *
-   * @return the {@code ClusterState} for the specified id, or null if not found.
+   * @return the {@code AttributeState} for the specified id, or null if not found.
    */
   @Nullable
   public AttributeState getAttributeState(long attributeId) {
     return attributes.get(attributeId);
+  }
+
+  /**
+   * Convenience utility for getting an {@code ArrayList<EventState> }.
+   *
+   * @return the {@code ArrayList<EventState>} for the specified id, or null if not found.
+   */
+  @Nullable
+  public ArrayList<EventState> getEventState(long eventId) {
+    return events.get(eventId);
   }
 
   @Override
@@ -53,6 +82,18 @@ public final class ClusterState {
           builder.append(
               attributeState.getValue() == null ? "null" : attributeState.getValue().toString());
           builder.append("\n");
+        });
+    events.forEach(
+        (eventId, eventStates) -> {
+          eventStates.forEach(
+              (eventState) -> {
+                builder.append("Event ");
+                builder.append(eventId);
+                builder.append(": ");
+                builder.append(
+                    eventState.getValue() == null ? "null" : eventState.getValue().toString());
+                builder.append("\n");
+              });
         });
     return builder.toString();
   }

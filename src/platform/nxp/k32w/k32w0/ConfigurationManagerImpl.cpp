@@ -30,6 +30,7 @@
 #include <platform/DiagnosticDataProvider.h>
 #include <platform/internal/GenericConfigurationManagerImpl.ipp>
 #include <platform/nxp/k32w/k32w0/K32W0Config.h>
+#include <platform/nxp/k32w/k32w0/KeyValueStoreManagerImpl.h>
 
 #include "fsl_power.h"
 #include "fsl_reset.h"
@@ -52,13 +53,6 @@ CHIP_ERROR ConfigurationManagerImpl::Init()
     CHIP_ERROR err;
     uint32_t rebootCount = 0;
 
-    // Save out software version on first boot
-    if (!K32WConfig::ConfigValueExists(K32WConfig::kConfigKey_SoftwareVersion))
-    {
-        err = StoreSoftwareVersion(CHIP_DEVICE_CONFIG_DEVICE_SOFTWARE_VERSION);
-        SuccessOrExit(err);
-    }
-
     if (K32WConfig::ConfigValueExists(K32WConfig::kCounterKey_RebootCount))
     {
         err = GetRebootCount(rebootCount);
@@ -70,7 +64,7 @@ CHIP_ERROR ConfigurationManagerImpl::Init()
     else
     {
         // The first boot after factory reset of the Node.
-        err = StoreRebootCount(1);
+        err = StoreRebootCount(0);
         SuccessOrExit(err);
     }
 
@@ -85,6 +79,8 @@ CHIP_ERROR ConfigurationManagerImpl::Init()
         err = StoreBootReason(to_underlying(BootReasonType::kUnspecified));
         SuccessOrExit(err);
     }
+
+    rebootCause = POWER_GetResetCause();
 
     // Initialize the generic implementation base class.
     err = Internal::GenericConfigurationManagerImpl<K32WConfig>::Init();
@@ -118,38 +114,27 @@ CHIP_ERROR ConfigurationManagerImpl::StoreTotalOperationalHours(uint32_t totalOp
     return WriteConfigValue(K32WConfig::kCounterKey_TotalOperationalHours, totalOperationalHours);
 }
 
-CHIP_ERROR ConfigurationManagerImpl::GetSoftwareVersion(uint32_t & softwareVer)
-{
-    return ReadConfigValue(K32WConfig::kConfigKey_SoftwareVersion, softwareVer);
-}
-
-CHIP_ERROR ConfigurationManagerImpl::StoreSoftwareVersion(uint32_t softwareVer)
-{
-    return WriteConfigValue(K32WConfig::kConfigKey_SoftwareVersion, softwareVer);
-}
-
 CHIP_ERROR ConfigurationManagerImpl::GetBootReason(uint32_t & bootReason)
 {
-    bootReason     = to_underlying(BootReasonType::kUnspecified);
-    uint8_t reason = POWER_GetResetCause();
-
-    if (reason == RESET_UNDEFINED)
+    bootReason = to_underlying(BootReasonType::kUnspecified);
+    // rebootCause is obtained at bootup.
+    if (rebootCause == RESET_UNDEFINED)
     {
         bootReason = to_underlying(BootReasonType::kUnspecified);
     }
-    else if ((reason == RESET_POR) || (reason == RESET_EXT_PIN))
+    else if ((rebootCause == RESET_POR) || (rebootCause == RESET_EXT_PIN))
     {
         bootReason = to_underlying(BootReasonType::kPowerOnReboot);
     }
-    else if (reason == RESET_BOR)
+    else if (rebootCause == RESET_BOR)
     {
         bootReason = to_underlying(BootReasonType::kBrownOutReset);
     }
-    else if (reason == RESET_SW_REQ)
+    else if (rebootCause == RESET_SW_REQ)
     {
         bootReason = to_underlying(BootReasonType::kSoftwareReset);
     }
-    else if (reason == RESET_WDT)
+    else if (rebootCause == RESET_WDT)
     {
         bootReason = to_underlying(BootReasonType::kSoftwareWatchdogReset);
         /* Reboot can be due to hardware or software watchdog */
@@ -161,6 +146,31 @@ CHIP_ERROR ConfigurationManagerImpl::GetBootReason(uint32_t & bootReason)
 CHIP_ERROR ConfigurationManagerImpl::StoreBootReason(uint32_t bootReason)
 {
     return WriteConfigValue(K32WConfig::kCounterKey_BootReason, bootReason);
+}
+
+CHIP_ERROR ConfigurationManagerImpl::GetUniqueId(char * buf, size_t bufSize)
+{
+    CHIP_ERROR err;
+    size_t uniqueIdLen = 0; // without counting null-terminator
+    err                = ReadConfigValueStr(K32WConfig::kConfigKey_UniqueId, buf, bufSize, uniqueIdLen);
+
+    ReturnErrorOnFailure(err);
+
+    ReturnErrorCodeIf(uniqueIdLen >= bufSize, CHIP_ERROR_BUFFER_TOO_SMALL);
+    ReturnErrorCodeIf(buf[uniqueIdLen] != 0, CHIP_ERROR_INVALID_STRING_LENGTH);
+
+    return err;
+}
+
+CHIP_ERROR ConfigurationManagerImpl::StoreUniqueId(const char * uniqueId, size_t uniqueIdLen)
+{
+    return WriteConfigValueStr(K32WConfig::kConfigKey_UniqueId, uniqueId, uniqueIdLen);
+}
+
+CHIP_ERROR ConfigurationManagerImpl::GenerateUniqueId(char * buf, size_t bufSize)
+{
+    uint64_t randomUniqueId = Crypto::GetRandU64();
+    return Encoding::BytesToUppercaseHexString(reinterpret_cast<uint8_t *>(&randomUniqueId), sizeof(uint64_t), buf, bufSize);
 }
 
 bool ConfigurationManagerImpl::CanFactoryReset()
@@ -263,10 +273,7 @@ CHIP_ERROR ConfigurationManagerImpl::WriteConfigValueBin(Key key, const uint8_t 
     return K32WConfig::WriteConfigValueBin(key, data, dataLen);
 }
 
-void ConfigurationManagerImpl::RunConfigUnitTest(void)
-{
-    K32WConfig::RunConfigUnitTest();
-}
+void ConfigurationManagerImpl::RunConfigUnitTest(void) {}
 
 void ConfigurationManagerImpl::DoFactoryReset(intptr_t arg)
 {
@@ -274,11 +281,10 @@ void ConfigurationManagerImpl::DoFactoryReset(intptr_t arg)
 
     ChipLogProgress(DeviceLayer, "Performing factory reset");
 
-    err = K32WConfig::FactoryResetConfig();
-    if (err != CHIP_NO_ERROR)
-    {
-        ChipLogError(DeviceLayer, "FactoryResetConfig() failed: %s", ErrorStr(err));
-    }
+    K32WConfig::FactoryResetConfig();
+    ChipLogProgress(DeviceLayer, "Erased K32WConfig storage.");
+    PersistedStorage::KeyValueStoreManagerImpl::FactoryResetStorage();
+    ChipLogProgress(DeviceLayer, "Erased KVS storage.");
 
 #if CHIP_DEVICE_CONFIG_ENABLE_THREAD
 
@@ -289,6 +295,11 @@ void ConfigurationManagerImpl::DoFactoryReset(intptr_t arg)
     // Restart the system.
     ChipLogProgress(DeviceLayer, "System restarting");
     RESET_SystemReset();
+}
+
+ConfigurationManager & ConfigurationMgrImpl()
+{
+    return ConfigurationManagerImpl::GetDefaultInstance();
 }
 
 } // namespace DeviceLayer

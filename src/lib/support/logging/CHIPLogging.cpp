@@ -28,8 +28,9 @@
 #include <lib/core/CHIPCore.h>
 #include <lib/support/CHIPMem.h>
 #include <lib/support/CodeUtils.h>
-#include <lib/support/DLLUtil.h>
 #include <lib/support/Span.h>
+
+#include <platform/logging/LogV.h>
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -38,25 +39,7 @@
 #include <atomic>
 
 #if CHIP_PW_TOKENIZER_LOGGING
-
-extern "C" void pw_tokenizer_HandleEncodedMessageWithPayload(uintptr_t levels, const uint8_t encoded_message[], size_t size_bytes)
-{
-    uint8_t log_category = levels >> 8 & 0xFF;
-    uint8_t log_module   = levels & 0xFF;
-    char * buffer        = (char *) chip::Platform::MemoryAlloc(2 * size_bytes + 1);
-
-    if (buffer)
-    {
-        for (int i = 0; i < size_bytes; i++)
-        {
-            sprintf(buffer + 2 * i, "%02x", encoded_message[i]);
-        }
-        buffer[2 * size_bytes] = '\0';
-        chip::Logging::Log(log_module, log_category, "%s", buffer);
-        chip::Platform::MemoryFree(buffer);
-    }
-}
-
+#include "pw_tokenizer/encode_args.h"
 #endif
 
 namespace chip {
@@ -64,78 +47,119 @@ namespace Logging {
 
 #if _CHIP_USE_LOGGING
 
+#if CHIP_PW_TOKENIZER_LOGGING
+
+void HandleTokenizedLog(uint32_t levels, pw_tokenizer_Token token, pw_tokenizer_ArgTypes types, ...)
+{
+    uint8_t encoded_message[PW_TOKENIZER_CFG_ENCODING_BUFFER_SIZE_BYTES];
+
+    memcpy(encoded_message, &token, sizeof(token));
+
+    va_list args;
+    va_start(args, types);
+    // Use the C argument encoding API, since the C++ API requires C++17.
+    const size_t encoded_size = sizeof(token) +
+        pw_tokenizer_EncodeArgs(types, args, encoded_message + sizeof(token), sizeof(encoded_message) - sizeof(token));
+    va_end(args);
+
+    uint8_t log_category  = levels >> 8 & 0xFF;
+    uint8_t log_module    = levels & 0xFF;
+    char * logging_buffer = nullptr;
+
+    // To reduce the number of alloc/free that is happening we will use a stack
+    // buffer when buffer required to log is small.
+    char stack_buffer[32];
+    char * allocated_buffer     = nullptr;
+    size_t required_buffer_size = 2 * encoded_size + 1;
+
+    if (required_buffer_size > sizeof(stack_buffer))
+    {
+        allocated_buffer = (char *) chip::Platform::MemoryAlloc(required_buffer_size);
+        if (allocated_buffer)
+        {
+            logging_buffer = allocated_buffer;
+        }
+    }
+    else
+    {
+        logging_buffer = stack_buffer;
+    }
+
+    if (logging_buffer)
+    {
+        for (size_t i = 0; i < encoded_size; i++)
+        {
+            sprintf(logging_buffer + 2 * i, "%02x", encoded_message[i]);
+        }
+        logging_buffer[2 * encoded_size] = '\0';
+        Log(log_module, log_category, "%s", logging_buffer);
+    }
+    if (allocated_buffer)
+    {
+        chip::Platform::MemoryFree(allocated_buffer);
+    }
+}
+
+#endif
+
 namespace {
 
 std::atomic<LogRedirectCallback_t> sLogRedirectCallback{ nullptr };
 
 /*
- * Array of strings containing the names for each of the chip log
- * modules.
+ * Array of strings containing the names for each of the chip log modules.
  *
- * NOTE: The names must be in the order defined in the LogModule
- *       enumeration. Each name must be a fixed number of characters
- *       long (chip::Logging::kMaxModuleNameLen) padded with nulls as
- *       necessary.
- *
+ * NOTE: The names must be in the order defined in the LogModule enumeration.
  */
-const char ModuleNames[] = "-\0\0" // None
-                           "IN\0"  // Inet
-                           "BLE"   // BLE
-                           "ML\0"  // MessageLayer
-                           "SM\0"  // SecurityManager
-                           "EM\0"  // ExchangeManager
-                           "TLV"   // TLV
-                           "ASN"   // ASN1
-                           "CR\0"  // Crypto
-                           "CTL"   // Controller
-                           "AL\0"  // Alarm
-                           "SC\0"  // SecureChannel
-                           "BDX"   // BulkDataTransfer
-                           "DMG"   // DataManagement
-                           "DC\0"  // DeviceControl
-                           "DD\0"  // DeviceDescription
-                           "ECH"   // Echo
-                           "FP\0"  // FabricProvisioning
-                           "NP\0"  // NetworkProvisioning
-                           "SD\0"  // ServiceDirectory
-                           "SP\0"  // ServiceProvisioning
-                           "SWU"   // SoftwareUpdate
-                           "TP\0"  // TokenPairing
-                           "TS\0"  // TimeServices
-                           "HB\0"  // Heartbeat
-                           "CSL"   // chipSystemLayer
-                           "EVL"   // Event Logging
-                           "SPT"   // Support
-                           "TOO"   // chipTool
-                           "ZCL"   // Zcl
-                           "SH\0"  // Shell
-                           "DL\0"  // DeviceLayer
-                           "SPL"   // SetupPayload
-                           "SVR"   // AppServer
-                           "DIS"   // Discovery
-                           "IM\0"  // InteractionModel
-                           "TST"   // Test
-                           "ODP"   // OperationalDeviceProxy
-                           "ATM"   // Automation
-                           "CSM"   // CASESessionManager
-    ;
-
-#define ModuleNamesCount ((sizeof(ModuleNames) - 1) / chip::Logging::kMaxModuleNameLen)
-
-void GetModuleName(char (&buf)[chip::Logging::kMaxModuleNameLen + 1], uint8_t module)
-{
-
-    const char * module_name = ModuleNames;
-    if (module < ModuleNamesCount)
-    {
-        module_name += module * chip::Logging::kMaxModuleNameLen;
-    }
-
-    memcpy(buf, module_name, chip::Logging::kMaxModuleNameLen);
-    buf[chip::Logging::kMaxModuleNameLen] = 0; // ensure null termination
-}
+static const char ModuleNames[kLogModule_Max][kMaxModuleNameLen + 1] = {
+    "-",   // None
+    "IN",  // Inet
+    "BLE", // BLE
+    "ML",  // MessageLayer
+    "SM",  // SecurityManager
+    "EM",  // ExchangeManager
+    "TLV", // TLV
+    "ASN", // ASN1
+    "CR",  // Crypto
+    "CTL", // Controller
+    "AL",  // Alarm
+    "SC",  // SecureChannel
+    "BDX", // BulkDataTransfer
+    "DMG", // DataManagement
+    "DC",  // DeviceControl
+    "DD",  // DeviceDescription
+    "ECH", // Echo
+    "FP",  // FabricProvisioning
+    "NP",  // NetworkProvisioning
+    "SD",  // ServiceDirectory
+    "SP",  // ServiceProvisioning
+    "SWU", // SoftwareUpdate
+    "FS",  // FailSafe
+    "TS",  // TimeService
+    "HB",  // Heartbeat
+    "CSL", // chipSystemLayer
+    "EVL", // Event Logging
+    "SPT", // Support
+    "TOO", // chipTool
+    "ZCL", // Zcl
+    "SH",  // Shell
+    "DL",  // DeviceLayer
+    "SPL", // SetupPayload
+    "SVR", // AppServer
+    "DIS", // Discovery
+    "IM",  // InteractionModel
+    "TST", // Test
+    "OSS", // OperationalSessionSetup
+    "ATM", // Automation
+    "CSM", // CASESessionManager
+};
 
 } // namespace
+
+const char * GetModuleName(LogModule module)
+{
+    return ModuleNames[(module < kLogModule_Max) ? module : kLogModule_NotSpecified];
+}
 
 void SetLogRedirectCallback(LogRedirectCallback_t callback)
 {
@@ -164,7 +188,7 @@ void SetLogRedirectCallback(LogRedirectCallback_t callback)
  *                      correspond to the format specifiers in @a msg.
  *
  */
-DLL_EXPORT void Log(uint8_t module, uint8_t category, const char * msg, ...)
+void Log(uint8_t module, uint8_t category, const char * msg, ...)
 {
 
     va_list v;
@@ -173,7 +197,7 @@ DLL_EXPORT void Log(uint8_t module, uint8_t category, const char * msg, ...)
     va_end(v);
 }
 
-DLL_EXPORT void LogByteSpan(uint8_t module, uint8_t category, const chip::ByteSpan & span)
+void LogByteSpan(uint8_t module, uint8_t category, const chip::ByteSpan & span)
 {
     // Maximum number of characters needed to print 8 byte buffer including formatting (0x)
     // 8 bytes * (2 nibbles per byte + 4 character for ", 0x") + null termination.
@@ -206,16 +230,8 @@ DLL_EXPORT void LogByteSpan(uint8_t module, uint8_t category, const chip::ByteSp
 
 void LogV(uint8_t module, uint8_t category, const char * msg, va_list args)
 {
-    if (!IsCategoryEnabled(category))
-    {
-        return;
-    }
-
-    char moduleName[chip::Logging::kMaxModuleNameLen + 1];
-    GetModuleName(moduleName, module);
-
+    const char * moduleName        = GetModuleName(static_cast<LogModule>(module));
     LogRedirectCallback_t redirect = sLogRedirectCallback.load();
-
     if (redirect != nullptr)
     {
         redirect(moduleName, category, msg, args);
@@ -228,41 +244,38 @@ void LogV(uint8_t module, uint8_t category, const char * msg, va_list args)
 
 #if CHIP_LOG_FILTERING
 uint8_t gLogFilter = kLogCategory_Max;
-DLL_EXPORT bool IsCategoryEnabled(uint8_t category)
-{
-    return (category <= gLogFilter);
-}
 
-DLL_EXPORT uint8_t GetLogFilter()
+uint8_t GetLogFilter()
 {
     return gLogFilter;
 }
 
-DLL_EXPORT void SetLogFilter(uint8_t category)
+void SetLogFilter(uint8_t category)
 {
     gLogFilter = category;
 }
 
 #else  // CHIP_LOG_FILTERING
 
-DLL_EXPORT bool IsCategoryEnabled(uint8_t category)
-{
-    (void) category;
-    return true;
-}
-
-DLL_EXPORT uint8_t GetLogFilter()
+uint8_t GetLogFilter()
 {
     return kLogCategory_Max;
 }
 
-DLL_EXPORT void SetLogFilter(uint8_t category)
+void SetLogFilter(uint8_t category)
 {
-    (void) category;
+    IgnoreUnusedVariable(category);
 }
 #endif // CHIP_LOG_FILTERING
 
-#endif /* _CHIP_USE_LOGGING */
+#if CHIP_LOG_FILTERING
+bool IsCategoryEnabled(uint8_t category)
+{
+    return (category <= gLogFilter);
+}
+#endif // CHIP_LOG_FILTERING
+
+#endif // _CHIP_USE_LOGGING
 
 } // namespace Logging
 } // namespace chip

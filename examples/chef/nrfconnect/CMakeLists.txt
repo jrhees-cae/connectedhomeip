@@ -27,11 +27,18 @@ get_filename_component(GEN_DIR ${CHEF}/out/${SAMPLE_NAME}/zap-generated REALPATH
 set(CONF_FILE prj.conf)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CHIP_CFLAGS "${CHIP_CFLAGS} -DCHIP_DEVICE_CONFIG_DEVICE_PRODUCT_ID=${CONFIG_DEVICE_PRODUCT_ID}")
 set(CHIP_CFLAGS "${CHIP_CFLAGS} -DCHIP_DEVICE_CONFIG_DEVICE_VENDOR_ID=${CONFIG_DEVICE_VENDOR_ID}")
-set(CHIP_CFLAGS "${CHIP_CFLAGS} -DCHIP_PLATFORM_NRFCONNECT=1")
-message(STATUS "Product ID " ${CONFIG_DEVICE_PRODUCT_ID})
+set(CHIP_CFLAGS "${CHIP_CFLAGS} -DCHIP_DEVICE_CONFIG_DEVICE_PRODUCT_ID=${CONFIG_DEVICE_PRODUCT_ID}")
+if(NOT ${CONFIG_DEVICE_PRODUCT_NAME} STREQUAL "")
+    set(CHIP_CFLAGS "${CHIP_CFLAGS} -DCHIP_DEVICE_CONFIG_DEVICE_PRODUCT_NAME=\"${CONFIG_DEVICE_PRODUCT_NAME}\"")
+endif()
+if(NOT ${CHIP_DEVICE_CONFIG_DEVICE_SOFTWARE_VERSION_STRING} STREQUAL "")
+  set(CHIP_CFLAGS "${CHIP_CFLAGS} -DCHIP_DEVICE_CONFIG_DEVICE_SOFTWARE_VERSION_STRING=\"${CHIP_DEVICE_CONFIG_DEVICE_SOFTWARE_VERSION_STRING}\"")
+endif()
 message(STATUS "Vendor ID " ${CONFIG_DEVICE_VENDOR_ID})
+message(STATUS "Product ID " ${CONFIG_DEVICE_PRODUCT_ID})
+message(STATUS "Product Name " ${CONFIG_DEVICE_PRODUCT_NAME})
+message(STATUS "SW Version String" ${CHIP_DEVICE_CONFIG_DEVICE_SOFTWARE_VERSION_STRING})
 
 # Set Kconfig root files that will be processed as a first Kconfig for used child images.
 set(mcuboot_KCONFIG_ROOT ${CHIP_ROOT}/config/nrfconnect/chip-module/Kconfig.mcuboot.root)
@@ -63,48 +70,33 @@ target_include_directories(app PRIVATE
                            ${CHEF}
                            ${GEN_DIR}/../
                            ${CHIP_ROOT}/src
+                           ${CHIP_ROOT}/examples/shell/shell_common/include
                            ${NRFCONNECT_COMMON}/util/include
                            ${NRFCONNECT_COMMON}/app/include
 )
 
-if (CONFIG_ENABLE_CHIP_SHELL)
+if (CONFIG_CHIP_LIB_SHELL)
   target_sources(app PRIVATE
     ${CHEF}/shell_common/globals.cpp
     ${CHEF}/shell_common/cmd_misc.cpp
     ${CHEF}/shell_common/cmd_otcli.cpp
-    ${CHEF}/shell_common/cmd_ping.cpp
-    ${CHEF}/shell_common/cmd_send.cpp
   )
 
   target_include_directories(app PRIVATE
     ${CHEF}/shell_common/include
   )
-endif (CONFIG_ENABLE_CHIP_SHELL)
+endif()
 
 target_sources(app PRIVATE
     ${CHEF}/nrfconnect/main.cpp
-    ${GEN_DIR}/callback-stub.cpp
-    ${GEN_DIR}/IMClusterCommandHandler.cpp
-    ${NRFCONNECT_COMMON}/util/ThreadUtil.cpp
+    ${CHEF}/common/stubs.cpp
 )
 
 message(STATUS ${CHEF}/devices/${SAMPLE_NAME}.zap)
 chip_configure_data_model(app
     INCLUDE_SERVER
     ZAP_FILE ${CHEF}/devices/${SAMPLE_NAME}.zap
-    GEN_DIR ${GEN_DIR}
 )
-
-
-# 1) The example needs be linked with openthread command line interpreter (required by cmd_otcli.cpp)
-# 2) Zephyr shell must be disabled not to interfere with the example
-# We can't achieve 1 and 2 with Kconfig since CONFIG_OPENTHREAD_SHELL implies CONFIG_SHELL.
-# Hence the workaround below.
-if(CONFIG_OPENTHREAD_FTD)
-    target_link_libraries(app INTERFACE openthread-cli-ftd)
-elseif(CONFIG_OPENTHREAD_MTD)
-    target_link_libraries(app INTERFACE openthread-cli-mtd)
-endif()
 
 include(${CHIP_ROOT}/config/nrfconnect/app/flashing.cmake)
 
@@ -124,9 +116,9 @@ include(${PIGWEED_ROOT}/pw_protobuf_compiler/proto.cmake)
 
 pw_set_module_config(pw_rpc_CONFIG pw_rpc.disable_global_mutex_config)
 pw_set_backend(pw_log pw_log_basic)
-pw_set_backend(pw_assert pw_assert_log)
+pw_set_backend(pw_assert.check pw_assert_log.check_backend)
+pw_set_backend(pw_assert.assert pw_assert.assert_compatibility_backend)
 pw_set_backend(pw_sys_io pw_sys_io.nrfconnect)
-pw_set_backend(pw_trace pw_trace_tokenized)
 set(dir_pw_third_party_nanopb "${CHIP_ROOT}/third_party/nanopb/repo" CACHE STRING "" FORCE)
 
 add_subdirectory(third_party/connectedhomeip/examples/platform/nrfconnect/pw_sys_io)
@@ -143,7 +135,7 @@ pw_proto_library(attributes_service
   STRIP_PREFIX
     ${CHIP_ROOT}/examples/common/pigweed/protos
   DEPS
-    pw_protobuf.common_protos
+    pw_protobuf.common_proto
 )
 
 pw_proto_library(descriptor_service
@@ -154,7 +146,7 @@ pw_proto_library(descriptor_service
   STRIP_PREFIX
     ${CHIP_ROOT}/examples/common/pigweed/protos
   DEPS
-    pw_protobuf.common_protos
+    pw_protobuf.common_proto
 )
 
 pw_proto_library(device_service
@@ -167,7 +159,7 @@ pw_proto_library(device_service
   STRIP_PREFIX
     ${CHIP_ROOT}/examples/common/pigweed/protos
   DEPS
-    pw_protobuf.common_protos
+    pw_protobuf.common_proto
 )
 
 pw_proto_library(ot_cli_service
@@ -180,7 +172,7 @@ pw_proto_library(ot_cli_service
   PREFIX
     ot_cli_service
   DEPS
-    pw_protobuf.common_protos
+    pw_protobuf.common_proto
 )
 
 pw_proto_library(thread_service
@@ -193,7 +185,7 @@ pw_proto_library(thread_service
   PREFIX
     thread_service
   DEPS
-    pw_protobuf.common_protos
+    pw_protobuf.common_proto
 )
 
 target_sources(app PRIVATE
@@ -218,7 +210,6 @@ target_compile_options(app PRIVATE
                        "-DPW_RPC_DESCRIPTOR_SERVICE=1"
                        "-DPW_RPC_DEVICE_SERVICE=1"
                        "-DPW_RPC_THREAD_SERVICE=1"
-                       "-DPW_RPC_TRACING_SERVICE=1"
 )
 
 target_link_libraries(app PRIVATE
@@ -228,17 +219,10 @@ target_link_libraries(app PRIVATE
   thread_service.nanopb_rpc
   pw_checksum
   pw_hdlc
+  pw_hdlc.pw_rpc
   pw_log
   pw_rpc.server
-  pw_trace_tokenized
-  pw_trace_tokenized.trace_buffer
-  pw_trace_tokenized.rpc_service
-  pw_trace_tokenized.protos.nanopb_rpc
-)
-
-target_link_options(app
-  PUBLIC
-    "-T${PIGWEED_ROOT}/pw_tokenizer/pw_tokenizer_linker_sections.ld"
+  pw_sys_io
 )
 
 endif(CONFIG_ENABLE_PW_RPC)

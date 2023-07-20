@@ -14,13 +14,16 @@
 
 name: 9.1.1. [TC-RH-1.1] Global attributes with server as DUT
 
+PICS:
+    - RH.S
+
 config:
     nodeId: 0x12344321
     cluster: "Relative Humidity Measurement"
     endpoint: 1
 
 tests:
-    - label: "Wait for the commissioned device to be retrieved"
+    - label: "Step 1: Wait for the commissioned device to be retrieved"
       cluster: "DelayCommands"
       command: "WaitForCommissionee"
       arguments:
@@ -28,39 +31,69 @@ tests:
               - name: "nodeId"
                 value: nodeId
 
-    - label:
-          "Read ClusterRevision attribute from the DUT and Verify that the DUT
-          response indicates ClusterRevision attribute has the value 3"
-      verification: |
-          ./chip-tool relativehumiditymeasurement read cluster-revision 1 1
-          verify that you see something like this:
-          [1643287333.135402][12177:12182] CHIP:DMG:  Data = 3,
-          [1643287333.135504][12177:12182] CHIP:DMG:                         }
-      cluster: "LogCommands"
-      command: "UserPrompt"
-      PICS: PICS_USER_PROMPT
-      arguments:
-          values:
-              - name: "message"
-                value: "Enter the Value"
-              - name: "expectedValue"
-                value: 3
+    - label: "Step 2: Read ClusterRevision attribute from the DUT"
+      command: "readAttribute"
+      attribute: "ClusterRevision"
+      response:
+          value: 3
+          constraints:
+              type: int16u
 
-    #Disabled due to issue 17462
-    - label: "Read the global attribute: AttributeList"
-      PICS: PICS_SKIP_SAMPLE_APP
+    - label: "Step 3: Read FeatureMap attribute from the DUT"
+      command: "readAttribute"
+      attribute: "FeatureMap"
+      response:
+          value: 0
+          constraints:
+              type: bitmap32
+
+    - label: "Step 4a: Read the global attribute: AttributeList"
       command: "readAttribute"
       attribute: "AttributeList"
       response:
-          value: [0, 1, 2]
+          constraints:
+              type: list
+              contains: [0, 1, 2, 65528, 65529, 65530, 65531, 65532, 65533]
+
+    - label: "Step 4b: Read the optional attribute(Tolerance) in AttributeList"
+      command: "readAttribute"
+      attribute: "AttributeList"
+      PICS: RH.S.A0003
+      response:
+          constraints:
+              type: list
+              contains: [3]
+
+    - label: "Step 5: Read the global attribute: AcceptedCommandList"
+      command: "readAttribute"
+      attribute: "AcceptedCommandList"
+      response:
+          value: []
           constraints:
               type: list
 
+    - label: "Step 6: Read the global attribute: GeneratedCommandList"
+      command: "readAttribute"
+      attribute: "GeneratedCommandList"
+      response:
+          value: []
+          constraints:
+              type: list
+
+    #Manufacturer specific event IDs check not possible
     - label:
-          "Read EventList attribute from the DUT and Verify that the DUT
-          response provides a list of supported events."
+          "Step 7: Read EventList attribute from the DUT.For this cluster the
+          list is usually empty but it can contain manufacturer specific event
+          IDs."
       verification: |
-          Not implemented in chip-tool
+          ./chip-tool relativehumiditymeasurement read event-list 1 1
+
+            Verify " EventList " consists the list of supported events, in this cluster in RPI the value is 0 on the TH(Chip-tool) Log and below is the sample log provided for the raspi platform:
+
+            [1676357956.011759][8095:8097] CHIP:DMG: }
+            [1676357956.011914][8095:8097] CHIP:TOO: Endpoint: 1 Cluster: 0x0000_0405 Attribute 0x0000_FFFA DataVersion: 3619476420
+            [1676357956.011967][8095:8097] CHIP:TOO:   EventList: 0 entries
+                cluster: "LogCommands"
       cluster: "LogCommands"
       command: "UserPrompt"
       PICS: PICS_USER_PROMPT
@@ -70,35 +103,3 @@ tests:
                 value: "Please enter 'y' for success"
               - name: "expectedValue"
                 value: "y"
-
-    - label: "Read the global attribute: AcceptedCommandList"
-      command: "readAttribute"
-      attribute: "AcceptedCommandList"
-      response:
-          value: []
-          constraints:
-              type: list
-
-    - label: "Read the global attribute: GeneratedCommandList"
-      command: "readAttribute"
-      attribute: "GeneratedCommandList"
-      response:
-          value: []
-          constraints:
-              type: list
-
-    - label:
-          "Read FeatureMap attribute from the DUT and Verify that the DUT
-          response"
-      verification: |
-          ./chip-tool lowpower read feature-map 1 1
-          [1645780669.465220][5069:5074] CHIP:TOO: Response Failure: IM Error 0x00000586: General error: 0x86
-      cluster: "LogCommands"
-      command: "UserPrompt"
-      PICS: PICS_USER_PROMPT
-      arguments:
-          values:
-              - name: "message"
-                value: "Please enter FeatureMap attribute value"
-              - name: "expectedValue"
-                value: 0

@@ -203,9 +203,11 @@ CHIP_ERROR BleTransportCapabilitiesRequestMessage::Decode(const PacketBufferHand
     VerifyOrReturnError(CAPABILITIES_MSG_CHECK_BYTE_1 == chip::Encoding::Read8(p), BLE_ERROR_INVALID_MESSAGE);
     VerifyOrReturnError(CAPABILITIES_MSG_CHECK_BYTE_2 == chip::Encoding::Read8(p), BLE_ERROR_INVALID_MESSAGE);
 
-    for (size_t i = 0; i < kCapabilitiesRequestSupportedVersionsLength; i++)
+    static_assert(kCapabilitiesRequestSupportedVersionsLength == sizeof(msg.mSupportedProtocolVersions),
+                  "Expected capability sizes and storage must match");
+    for (unsigned char & version : msg.mSupportedProtocolVersions)
     {
-        msg.mSupportedProtocolVersions[i] = chip::Encoding::Read8(p);
+        version = chip::Encoding::Read8(p);
     }
 
     msg.mMtu        = chip::Encoding::LittleEndian::Read16(p);
@@ -298,14 +300,21 @@ CHIP_ERROR BleLayer::Init(BlePlatformDelegate * platformDelegate, BleApplication
     return Init(platformDelegate, nullptr, appDelegate, systemLayer);
 }
 
-CHIP_ERROR BleLayer::Shutdown()
+void BleLayer::Shutdown()
 {
     mState = kState_NotInitialized;
-    return CloseAllBleConnections();
+    CloseAllBleConnections();
 }
 
-CHIP_ERROR BleLayer::CloseAllBleConnections()
+void BleLayer::CloseAllBleConnections()
 {
+    // Cancel any ongoing attempt to establish new BLE connection
+    CHIP_ERROR err = CancelBleIncompleteConnection();
+    if (err != CHIP_NO_ERROR)
+    {
+        ChipLogError(Ble, "CancelBleIncompleteConnection() failed, err = %" CHIP_ERROR_FORMAT, err.Format());
+    }
+
     // Close and free all BLE end points.
     for (size_t i = 0; i < BLE_LAYER_NUM_BLE_ENDPOINTS; i++)
     {
@@ -329,10 +338,9 @@ CHIP_ERROR BleLayer::CloseAllBleConnections()
             }
         }
     }
-    return CHIP_NO_ERROR;
 }
 
-CHIP_ERROR BleLayer::CloseBleConnection(BLE_CONNECTION_OBJECT connObj)
+void BleLayer::CloseBleConnection(BLE_CONNECTION_OBJECT connObj)
 {
     // Close and free all BLE endpoints.
     for (size_t i = 0; i < BLE_LAYER_NUM_BLE_ENDPOINTS; i++)
@@ -357,7 +365,6 @@ CHIP_ERROR BleLayer::CloseBleConnection(BLE_CONNECTION_OBJECT connObj)
             }
         }
     }
-    return CHIP_NO_ERROR;
 }
 
 CHIP_ERROR BleLayer::CancelBleIncompleteConnection()
@@ -373,7 +380,7 @@ CHIP_ERROR BleLayer::CancelBleIncompleteConnection()
     return err;
 }
 
-CHIP_ERROR BleLayer::NewBleConnectionByDiscriminator(uint16_t connDiscriminator, void * appState,
+CHIP_ERROR BleLayer::NewBleConnectionByDiscriminator(const SetupDiscriminator & connDiscriminator, void * appState,
                                                      BleConnectionDelegate::OnConnectionCompleteFunct onSuccess,
                                                      BleConnectionDelegate::OnConnectionErrorFunct onError)
 {
@@ -385,6 +392,22 @@ CHIP_ERROR BleLayer::NewBleConnectionByDiscriminator(uint16_t connDiscriminator,
     mConnectionDelegate->OnConnectionError    = onError;
 
     mConnectionDelegate->NewConnection(this, appState == nullptr ? this : appState, connDiscriminator);
+
+    return CHIP_NO_ERROR;
+}
+
+CHIP_ERROR BleLayer::NewBleConnectionByObject(BLE_CONNECTION_OBJECT connObj, void * appState,
+                                              BleConnectionDelegate::OnConnectionCompleteFunct onSuccess,
+                                              BleConnectionDelegate::OnConnectionErrorFunct onError)
+{
+    VerifyOrReturnError(mState == kState_Initialized, CHIP_ERROR_INCORRECT_STATE);
+    VerifyOrReturnError(mConnectionDelegate != nullptr, CHIP_ERROR_INCORRECT_STATE);
+    VerifyOrReturnError(mBleTransport != nullptr, CHIP_ERROR_INCORRECT_STATE);
+
+    mConnectionDelegate->OnConnectionComplete = onSuccess;
+    mConnectionDelegate->OnConnectionError    = onError;
+
+    mConnectionDelegate->NewConnection(this, appState == nullptr ? this : appState, connObj);
 
     return CHIP_NO_ERROR;
 }
@@ -735,7 +758,7 @@ BleTransportProtocolVersion BleLayer::GetHighestSupportedProtocolVersion(const B
         shift_width ^= 4;
 
         uint8_t version = reqMsg.mSupportedProtocolVersions[(i / 2)];
-        version         = (version >> shift_width) & 0x0F; // Grab just the nibble we want.
+        version         = static_cast<uint8_t>((version >> shift_width) & 0x0F); // Grab just the nibble we want.
 
         if ((version >= CHIP_BLE_TRANSPORT_PROTOCOL_MIN_SUPPORTED_VERSION) &&
             (version <= CHIP_BLE_TRANSPORT_PROTOCOL_MAX_SUPPORTED_VERSION) && (version > retVersion))

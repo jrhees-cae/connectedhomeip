@@ -34,7 +34,7 @@
 #include <platform/CHIPDeviceConfig.h>
 #include <platform/ConfigurationManager.h>
 #include <platform/DeviceControlServer.h>
-#include <trace/trace.h>
+#include <tracing/macros.h>
 
 using namespace chip;
 using namespace chip::app;
@@ -129,7 +129,10 @@ CHIP_ERROR GeneralCommissioningAttrAccess::ReadBasicCommissioningInfo(AttributeV
 
     // TODO: The commissioner might use the critical parameters in BasicCommissioningInfo to initialize
     // the CommissioningParameters at the beginning of commissioning flow.
-    basicCommissioningInfo.failSafeExpiryLengthSeconds = CHIP_DEVICE_CONFIG_FAILSAFE_EXPIRY_LENGTH_SEC;
+    basicCommissioningInfo.failSafeExpiryLengthSeconds  = CHIP_DEVICE_CONFIG_FAILSAFE_EXPIRY_LENGTH_SEC;
+    basicCommissioningInfo.maxCumulativeFailsafeSeconds = CHIP_DEVICE_CONFIG_MAX_CUMULATIVE_FAILSAFE_SEC;
+    static_assert(CHIP_DEVICE_CONFIG_MAX_CUMULATIVE_FAILSAFE_SEC >= CHIP_DEVICE_CONFIG_FAILSAFE_EXPIRY_LENGTH_SEC,
+                  "Max cumulative failsafe seconds must be larger than failsafe expiry length seconds");
 
     return aEncoder.Encode(basicCommissioningInfo);
 }
@@ -140,7 +143,7 @@ CHIP_ERROR GeneralCommissioningAttrAccess::ReadSupportsConcurrentConnection(Attr
 
     // TODO: The commissioner might use the critical parameters in BasicCommissioningInfo to initialize
     // the CommissioningParameters at the beginning of commissioning flow.
-    supportsConcurrentConnection = (CHIP_DEVICE_CONFIG_FAILSAFE_EXPIRY_LENGTH_SEC) != 0;
+    supportsConcurrentConnection = (CHIP_DEVICE_CONFIG_SUPPORTS_CONCURRENT_CONNECTION) != 0;
 
     return aEncoder.Encode(supportsConcurrentConnection);
 }
@@ -151,9 +154,12 @@ bool emberAfGeneralCommissioningClusterArmFailSafeCallback(app::CommandHandler *
                                                            const app::ConcreteCommandPath & commandPath,
                                                            const Commands::ArmFailSafe::DecodableType & commandData)
 {
-    MATTER_TRACE_EVENT_SCOPE("ArmFailSafe", "GeneralCommissioning");
-    FailSafeContext & failSafeContext = DeviceLayer::DeviceControlServer::DeviceControlSvr().GetFailSafeContext();
+    MATTER_TRACE_SCOPE("ArmFailSafe", "GeneralCommissioning");
+    auto & failSafeContext = Server::GetInstance().GetFailSafeContext();
     Commands::ArmFailSafeResponse::Type response;
+
+    ChipLogProgress(FailSafe, "GeneralCommissioning: Received ArmFailSafe (%us)",
+                    static_cast<unsigned>(commandData.expiryLengthSeconds));
 
     /*
      * If the fail-safe timer is not fully disarmed, don't allow arming a new fail-safe.
@@ -172,11 +178,10 @@ bool emberAfGeneralCommissioningClusterArmFailSafeCallback(app::CommandHandler *
         // We do not allow CASE connections to arm the failsafe for the first time while the commissioning window is open in order
         // to allow commissioners the opportunity to obtain this failsafe for the purpose of commissioning
         if (!failSafeContext.IsFailSafeArmed() &&
-            Server::GetInstance().GetCommissioningWindowManager().CommissioningWindowStatus() !=
-                AdministratorCommissioning::CommissioningWindowStatus::kWindowNotOpen &&
+            Server::GetInstance().GetCommissioningWindowManager().IsCommissioningWindowOpen() &&
             commandObj->GetSubjectDescriptor().authMode == Access::AuthMode::kCase)
         {
-            response.errorCode = CommissioningError::kBusyWithOtherAdmin;
+            response.errorCode = CommissioningErrorEnum::kBusyWithOtherAdmin;
             commandObj->AddResponse(commandPath, response);
         }
         else if (commandData.expiryLengthSeconds == 0)
@@ -185,7 +190,7 @@ bool emberAfGeneralCommissioningClusterArmFailSafeCallback(app::CommandHandler *
             failSafeContext.ForceFailSafeTimerExpiry();
             // Don't set the breadcrumb, since expiring the failsafe should
             // reset it anyway.
-            response.errorCode = CommissioningError::kOk;
+            response.errorCode = CommissioningErrorEnum::kOk;
             commandObj->AddResponse(commandPath, response);
         }
         else
@@ -194,13 +199,13 @@ bool emberAfGeneralCommissioningClusterArmFailSafeCallback(app::CommandHandler *
                 failSafeContext.ArmFailSafe(accessingFabricIndex, System::Clock::Seconds16(commandData.expiryLengthSeconds)),
                 Failure);
             Breadcrumb::Set(commandPath.mEndpointId, commandData.breadcrumb);
-            response.errorCode = CommissioningError::kOk;
+            response.errorCode = CommissioningErrorEnum::kOk;
             commandObj->AddResponse(commandPath, response);
         }
     }
     else
     {
-        response.errorCode = CommissioningError::kBusyWithOtherAdmin;
+        response.errorCode = CommissioningErrorEnum::kBusyWithOtherAdmin;
         commandObj->AddResponse(commandPath, response);
     }
 
@@ -211,15 +216,18 @@ bool emberAfGeneralCommissioningClusterCommissioningCompleteCallback(
     app::CommandHandler * commandObj, const app::ConcreteCommandPath & commandPath,
     const Commands::CommissioningComplete::DecodableType & commandData)
 {
-    MATTER_TRACE_EVENT_SCOPE("CommissioningComplete", "GeneralCommissioning");
+    MATTER_TRACE_SCOPE("CommissioningComplete", "GeneralCommissioning");
 
-    DeviceControlServer * server = &DeviceLayer::DeviceControlServer::DeviceControlSvr();
-    const auto & failSafe        = server->GetFailSafeContext();
+    DeviceControlServer * devCtrl = &DeviceLayer::DeviceControlServer::DeviceControlSvr();
+    auto & failSafe               = Server::GetInstance().GetFailSafeContext();
+    auto & fabricTable            = Server::GetInstance().GetFabricTable();
+
+    ChipLogProgress(FailSafe, "GeneralCommissioning: Received CommissioningComplete");
 
     Commands::CommissioningCompleteResponse::Type response;
     if (!failSafe.IsFailSafeArmed())
     {
-        response.errorCode = CommissioningError::kNoFailSafe;
+        response.errorCode = CommissioningErrorEnum::kNoFailSafe;
     }
     else
     {
@@ -230,20 +238,39 @@ bool emberAfGeneralCommissioningClusterCommissioningCompleteCallback(
             handle->AsSecureSession()->GetSecureSessionType() != SecureSession::Type::kCASE ||
             !failSafe.MatchesFabricIndex(commandObj->GetAccessingFabricIndex()))
         {
-            response.errorCode = CommissioningError::kInvalidAuthentication;
+            response.errorCode = CommissioningErrorEnum::kInvalidAuthentication;
+            ChipLogError(FailSafe, "GeneralCommissioning: Got commissioning complete in invalid security context");
         }
         else
         {
+            if (failSafe.NocCommandHasBeenInvoked())
+            {
+                CHIP_ERROR err = fabricTable.CommitPendingFabricData();
+                if (err != CHIP_NO_ERROR)
+                {
+                    // No need to revert on error: CommitPendingFabricData always reverts if not fully successful.
+                    ChipLogError(FailSafe, "GeneralCommissioning: Failed to commit pending fabric data: %" CHIP_ERROR_FORMAT,
+                                 err.Format());
+                }
+                else
+                {
+                    ChipLogProgress(FailSafe, "GeneralCommissioning: Successfully commited pending fabric data");
+                }
+                CheckSuccess(err, Failure);
+            }
+
             /*
              * Pass fabric of commissioner to DeviceControlSvr.
              * This allows device to send messages back to commissioner.
              * Once bindings are implemented, this may no longer be needed.
              */
-            CheckSuccess(server->CommissioningComplete(handle->AsSecureSession()->GetPeerNodeId(), handle->GetFabricIndex()),
-                         Failure);
+            failSafe.DisarmFailSafe();
+            CheckSuccess(
+                devCtrl->PostCommissioningCompleteEvent(handle->AsSecureSession()->GetPeerNodeId(), handle->GetFabricIndex()),
+                Failure);
 
             Breadcrumb::Set(commandPath.mEndpointId, 0);
-            response.errorCode = CommissioningError::kOk;
+            response.errorCode = CommissioningErrorEnum::kOk;
         }
     }
 
@@ -256,14 +283,25 @@ bool emberAfGeneralCommissioningClusterSetRegulatoryConfigCallback(app::CommandH
                                                                    const app::ConcreteCommandPath & commandPath,
                                                                    const Commands::SetRegulatoryConfig::DecodableType & commandData)
 {
-    MATTER_TRACE_EVENT_SCOPE("SetRegulatoryConfig", "GeneralCommissioning");
+    MATTER_TRACE_SCOPE("SetRegulatoryConfig", "GeneralCommissioning");
     DeviceControlServer * server = &DeviceLayer::DeviceControlServer::DeviceControlSvr();
     Commands::SetRegulatoryConfigResponse::Type response;
 
-    if (commandData.newRegulatoryConfig > RegulatoryLocationType::kIndoorOutdoor)
+    auto & countryCode = commandData.countryCode;
+    bool isValidLength = countryCode.size() == DeviceLayer::ConfigurationManager::kMaxLocationLength;
+    if (!isValidLength)
     {
-        response.errorCode = CommissioningError::kValueOutsideRange;
-        response.debugText = commandData.countryCode;
+        ChipLogError(Zcl, "Invalid country code: '%.*s'", static_cast<int>(countryCode.size()), countryCode.data());
+        commandObj->AddStatus(commandPath, Protocols::InteractionModel::Status::ConstraintError);
+        return true;
+    }
+
+    if (commandData.newRegulatoryConfig > RegulatoryLocationTypeEnum::kIndoorOutdoor)
+    {
+        response.errorCode = CommissioningErrorEnum::kValueOutsideRange;
+        // TODO: How does using the country code in debug text make sense, if
+        // the real issue is the newRegulatoryConfig value?
+        response.debugText = countryCode;
     }
     else
     {
@@ -274,16 +312,18 @@ bool emberAfGeneralCommissioningClusterSetRegulatoryConfigCallback(app::CommandH
 
         // If the LocationCapability attribute is not Indoor/Outdoor and the NewRegulatoryConfig value received does not match
         // either the Indoor or Outdoor fixed value in LocationCapability.
-        if ((locationCapability != to_underlying(RegulatoryLocationType::kIndoorOutdoor)) && (location != locationCapability))
+        if ((locationCapability != to_underlying(RegulatoryLocationTypeEnum::kIndoorOutdoor)) && (location != locationCapability))
         {
-            response.errorCode = CommissioningError::kValueOutsideRange;
-            response.debugText = commandData.countryCode;
+            response.errorCode = CommissioningErrorEnum::kValueOutsideRange;
+            // TODO: How does using the country code in debug text make sense, if
+            // the real issue is the newRegulatoryConfig value?
+            response.debugText = countryCode;
         }
         else
         {
-            CheckSuccess(server->SetRegulatoryConfig(location, commandData.countryCode), Failure);
+            CheckSuccess(server->SetRegulatoryConfig(location, countryCode), Failure);
             Breadcrumb::Set(commandPath.mEndpointId, commandData.breadcrumb);
-            response.errorCode = CommissioningError::kOk;
+            response.errorCode = CommissioningErrorEnum::kOk;
         }
     }
 

@@ -20,11 +20,14 @@
 #include "esp_spi_flash.h"
 #include "esp_spiffs.h"
 #include "nvs_flash.h"
+#include <app/server/OnboardingCodesUtil.h>
 #include <app/server/Server.h>
 #include <common/CHIPDeviceManager.h>
 #include <common/Esp32AppServer.h>
-#include <lib/support/ErrorStr.h>
+#include <credentials/DeviceAttestationCredsProvider.h>
+#include <credentials/examples/DeviceAttestationCredsExample.h>
 #include <lib/support/logging/CHIPLogging.h>
+#include <platform/ESP32/ESP32Utils.h>
 
 #include <OTAProviderCommands.h>
 #include <app/clusters/ota-provider/ota-provider.h>
@@ -32,12 +35,23 @@
 #include <ota-provider-common/OTAProviderExample.h>
 #include <shell_extension/launch.h>
 
+#if CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
+#include <platform/ESP32/ESP32FactoryDataProvider.h>
+#endif // CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
+
+#if CONFIG_ENABLE_ESP32_DEVICE_INFO_PROVIDER
+#include <platform/ESP32/ESP32DeviceInfoProvider.h>
+#else
+#include <DeviceInfoProviderImpl.h>
+#endif // CONFIG_ENABLE_ESP32_DEVICE_INFO_PROVIDER
+
 using chip::Callback::Callback;
 using namespace chip;
 using namespace chip::Shell;
 using namespace chip::System;
 using namespace chip::DeviceManager;
 using namespace chip::app::Clusters::OtaSoftwareUpdateProvider;
+using namespace ::chip::Credentials;
 
 CHIP_ERROR OnBlockQuery(void * context, chip::System::PacketBufferHandle & blockBuf, size_t & size, bool & isEof, uint32_t offset);
 void OnTransferComplete(void * context);
@@ -62,6 +76,9 @@ chip::Callback::Callback<OnBdxTransferFailed> onTransferFailedCallback(OnTransfe
 
 static void InitServer(intptr_t context)
 {
+    // Print QR Code URL
+    PrintOnboardingCodes(chip::RendezvousInformationFlags(CONFIG_RENDEZVOUS_MODE));
+
     Esp32AppServer::Init(); // Init ZCL Data Model and CHIP App Server AND Initialize device attestation config
 
     BdxOtaSender * bdxOtaSender = otaProvider.GetBdxOtaSender();
@@ -72,7 +89,7 @@ static void InitServer(intptr_t context)
         chip::Protocols::BDX::Id, bdxOtaSender);
     if (error != CHIP_NO_ERROR)
     {
-        ESP_LOGE(TAG, "RegisterUnsolicitedMessageHandler failed: %s", chip::ErrorStr(error));
+        ESP_LOGE(TAG, "RegisterUnsolicitedMessageHandler failed: %" CHIP_ERROR_FORMAT, error.Format());
         return;
     }
 
@@ -97,7 +114,7 @@ static void InitServer(intptr_t context)
     }
     size_t total = 0, used = 0;
     err = esp_spiffs_info(NULL, &total, &used);
-    ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
+    ESP_LOGI(TAG, "Partition size: total: %u, used: %u", total, used);
     char otaImagePath[kMaxImagePathlen];
     memset(otaImagePath, 0, sizeof(otaImagePath));
     snprintf(otaImagePath, sizeof(otaImagePath), "/fs/%s", otaFilename);
@@ -112,11 +129,12 @@ static void InitServer(intptr_t context)
     fseek(otaImageFile, 0, SEEK_END);
     otaImageLen = ftell(otaImageFile);
     rewind(otaImageFile);
-    ESP_LOGI(TAG, "The OTA image size: %d", otaImageLen);
+    ESP_LOGI(TAG, "The OTA image size: %" PRIu32, otaImageLen);
     if (otaImageLen > 0)
     {
         otaProvider.SetQueryImageStatus(OTAQueryStatus::kUpdateAvailable);
         otaProvider.SetOTAFilePath(otaImagePath);
+        otaProvider.SetApplyUpdateAction(OTAApplyUpdateAction::kProceed);
     }
     fclose(otaImageFile);
     otaImageFile = NULL;
@@ -130,6 +148,15 @@ static void InitServer(intptr_t context)
     otaProviderCommands.Register();
 }
 
+#if CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
+DeviceLayer::ESP32FactoryDataProvider sFactoryDataProvider;
+#endif // CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
+
+#if CONFIG_ENABLE_ESP32_DEVICE_INFO_PROVIDER
+DeviceLayer::ESP32DeviceInfoProvider gExampleDeviceInfoProvider;
+#else
+DeviceLayer::DeviceInfoProviderImpl gExampleDeviceInfoProvider;
+#endif // CONFIG_ENABLE_ESP32_DEVICE_INFO_PROVIDER
 } // namespace
 
 CHIP_ERROR OnBlockQuery(void * context, chip::System::PacketBufferHandle & blockBuf, size_t & size, bool & isEof, uint32_t offset)
@@ -177,12 +204,12 @@ CHIP_ERROR OnBlockQuery(void * context, chip::System::PacketBufferHandle & block
     size_t size_read = fread(blockBuf->Start(), 1, size, otaImageFile);
     if (size_read != size)
     {
-        ESP_LOGE(TAG, "Failed to read %d bytes from %s", size, otaFilename);
+        ESP_LOGE(TAG, "Failed to read %u bytes from %s", size, otaFilename);
         size  = 0;
         isEof = false;
         return CHIP_ERROR_READ_FAILED;
     }
-    ESP_LOGI(TAG, "Read %d bytes from %s", size, otaFilename);
+    ESP_LOGI(TAG, "Read %u bytes from %s", size, otaFilename);
     return CHIP_NO_ERROR;
 }
 
@@ -219,15 +246,40 @@ extern "C" void app_main()
         ESP_LOGE(TAG, "nvs_flash_init() failed: %s", esp_err_to_name(err));
         return;
     }
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "esp_event_loop_create_default() failed: %s", esp_err_to_name(err));
+        return;
+    }
+#if CHIP_DEVICE_CONFIG_ENABLE_WIFI
+    if (DeviceLayer::Internal::ESP32Utils::InitWiFiStack() != CHIP_NO_ERROR)
+    {
+        ESP_LOGE(TAG, "Failed to initialize Wi-Fi stack");
+        return;
+    }
+#endif // CHIP_DEVICE_CONFIG_ENABLE_WIFI
+
+    DeviceLayer::SetDeviceInfoProvider(&gExampleDeviceInfoProvider);
 
     CHIPDeviceManager & deviceMgr = CHIPDeviceManager::GetInstance();
 
     CHIP_ERROR error = deviceMgr.Init(&EchoCallbacks);
     if (error != CHIP_NO_ERROR)
     {
-        ESP_LOGE(TAG, "device.Init() failed: %s", ErrorStr(error));
+        ESP_LOGE(TAG, "device.Init() failed: %" CHIP_ERROR_FORMAT, error.Format());
         return;
     }
+
+#if CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
+    SetCommissionableDataProvider(&sFactoryDataProvider);
+    SetDeviceAttestationCredentialsProvider(&sFactoryDataProvider);
+#if CONFIG_ENABLE_ESP32_DEVICE_INSTANCE_INFO_PROVIDER
+    SetDeviceInstanceInfoProvider(&sFactoryDataProvider);
+#endif
+#else
+    SetDeviceAttestationCredentialsProvider(Examples::GetExampleDACProvider());
+#endif // CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
 
     chip::DeviceLayer::PlatformMgr().ScheduleWork(InitServer, reinterpret_cast<intptr_t>(nullptr));
 }

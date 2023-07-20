@@ -16,8 +16,8 @@
  */
 
 #pragma once
+#include <bl60x_wifi_driver/wifi_mgmr.h>
 #include <platform/NetworkCommissioning.h>
-#include <wifi_mgmr.h>
 
 namespace chip {
 namespace DeviceLayer {
@@ -90,7 +90,7 @@ public:
     // BaseDriver
     NetworkIterator * GetNetworks() override { return new WiFiNetworkIterator(this); }
     CHIP_ERROR Init(NetworkStatusChangeCallback * networkStatusChangeCallback) override;
-    CHIP_ERROR Shutdown();
+    void Shutdown();
 
     // WirelessDriver
     uint8_t GetMaxNetworks() override { return kMaxWiFiNetworks; }
@@ -98,7 +98,6 @@ public:
     uint8_t GetConnectNetworkTimeoutSeconds() override { return kWiFiConnectNetworkTimeoutSeconds; }
 
     CHIP_ERROR CommitConfiguration() override;
-    CHIP_ERROR SaveConfiguration();
     CHIP_ERROR RevertConfiguration() override;
 
     Status RemoveNetwork(ByteSpan networkId, MutableCharSpan & outDebugText, uint8_t & outNetworkIndex) override;
@@ -111,9 +110,13 @@ public:
     void ScanNetworks(ByteSpan ssid, ScanCallback * callback) override;
 
     CHIP_ERROR ConnectWiFiNetwork(const char * ssid, uint8_t ssidLen, const char * key, uint8_t keyLen);
-    CHIP_ERROR ReConnectWiFiNetwork(void);
-    void OnConnectWiFiNetwork();
+    void OnConnectWiFiNetwork(bool isConnected);
     void OnScanWiFiNetworkDone();
+    void OnNetworkStatusChange();
+
+    CHIP_ERROR SetLastDisconnectReason(const ChipDeviceEvent * event);
+    int32_t GetLastDisconnectReason();
+
     static BLWiFiDriver & GetInstance()
     {
         static BLWiFiDriver instance;
@@ -124,12 +127,12 @@ private:
     bool NetworkMatch(const WiFiNetwork & network, ByteSpan networkId);
     CHIP_ERROR StartScanWiFiNetworks(ByteSpan ssid);
 
-    WiFiNetworkIterator mWiFiIterator = WiFiNetworkIterator(this);
     WiFiNetwork mSavedNetwork;
     WiFiNetwork mStagingNetwork;
     ScanCallback * mpScanCallback;
     ConnectCallback * mpConnectCallback;
     NetworkStatusChangeCallback * mpStatusChangeCallback = nullptr;
+    int32_t mLastDisconnectedReason;
 };
 // #endif // CHIP_DEVICE_CONFIG_ENABLE_WIFI
 

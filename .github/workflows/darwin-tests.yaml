@@ -17,43 +17,38 @@ name: Darwin Tests
 on:
     push:
     pull_request:
+    merge_group:
     workflow_dispatch:
 
 concurrency:
-    group:
-        ${{ github.ref }}-${{ github.workflow }}-${{ (github.event_name ==
+    group: ${{ github.ref }}-${{ github.workflow }}-${{ (github.event_name ==
         'pull_request' && github.event.number) || (github.event_name ==
         'workflow_dispatch' && github.run_number) || github.sha }}
     cancel-in-progress: true
 
+env:
+    CHIP_NO_LOG_TIMESTAMPS: true
+    
 jobs:
     test_suites_chip_tool_darwin:
         name: Test Suites - Darwin
-        timeout-minutes: 120
 
         strategy:
             matrix:
-                build_variant: [no-ble-asan]
+                build_variant: [no-ble-asan-clang]
         env:
             BUILD_VARIANT: ${{matrix.build_variant}}
+            LSAN_OPTIONS: detect_leaks=1 malloc_context_size=40 suppressions=scripts/tests/chiptest/lsan-mac-suppressions.txt
 
         if: github.actor != 'restyled-io[bot]'
         runs-on: macos-latest
 
         steps:
-            - uses: Wandalen/wretry.action@v1.0.15
-              name: Checkout
-              with:
-                  action: actions/checkout@v3
-                  with: |
-                      token: ${{ github.token }}
-                  attempt_limit: 3
-                  attempt_delay: 2000
-            - name: Checkout submodules
-              run: scripts/checkout_submodules.py --shallow --platform darwin
+            - name: Checkout
+              uses: actions/checkout@v3
             - name: Setup Environment
               # coreutils for stdbuf
-              run: brew install openssl pkg-config coreutils
+              run: brew install coreutils
             - name:
                   Try to ensure the directories for core dumping and diagnostic
                   log collection exist and we can write them.
@@ -61,28 +56,31 @@ jobs:
                   sudo chown ${USER} /cores || true
                   mkdir -p ~/Library/Logs/DiagnosticReports || true
                   mkdir objdir-clone || true
-            - name: Fix pkgconfig link
-              working-directory: /usr/local/lib/pkgconfig
-              run: |
-                  pwd
-                  ls -la /usr/local/Cellar/
-                  ls -la /usr/local/Cellar/openssl@1.1
-                  OPEN_SSL_VERSION=`ls -la /usr/local/Cellar/openssl@1.1 | cat | tail -n1 | awk '{print $NF}'`
-                  ln -s /usr/local/Cellar/openssl@1.1/$OPEN_SSL_VERSION/lib/pkgconfig/* .
-            - name: Bootstrap
-              timeout-minutes: 25
-              run: scripts/build/gn_bootstrap.sh
-            - name: Uploading bootstrap logs
-              uses: actions/upload-artifact@v2
-              if: ${{ always() }} && ${{ !env.ACT }}
+            - name: Checkout submodules & Bootstrap
+              uses: ./.github/actions/checkout-submodules-and-bootstrap
               with:
-                  name:
-                      bootstrap-logs-darwin-${{ matrix.build_variant }}${{ matrix.chip_tool }}
-                  path: |
-                      .environment/gn_out/.ninja_log
-                      .environment/pigweed-venv/*.log
+                platform: darwin
+                bootstrap-log-name: bootstrap-logs-darwin-${{ matrix.build_variant }}
+
+            - name: Run macOS Darwin Framework Tool Build Debug
+              working-directory: src/darwin/Framework
+              # Keep whatever Xcode settings
+              # for OTHER_CFLAGS exist by using ${inherited}.
+              #
+              # Enable -Wconversion by hand as well, because it seems to not be
+              # enabled by default in the Xcode config.
+              #
+              # Disable -Wunguarded-availability-new because we internally use
+              # APIs we added after our deployment target version.  Maybe we
+              # should change the deployment target version instead?
+              run: xcodebuild -target "darwin-framework-tool" -sdk macosx OTHER_CFLAGS='${inherited} -Wconversion -Wno-unguarded-availability-new'
+            - name: Delete Defaults
+              run: defaults delete com.apple.dt.xctest.tool
+              continue-on-error: true
+            - name: Clean Build
+              run: xcodebuild clean
+              working-directory: src/darwin/Framework
             - name: Build Apps
-              timeout-minutes: 45
               run: |
                   ./scripts/run_in_build_env.sh \
                      "./scripts/build/build_examples.py \
@@ -92,46 +90,63 @@ jobs:
                         --target darwin-x64-ota-provider-${BUILD_VARIANT} \
                         --target darwin-x64-ota-requestor-${BUILD_VARIANT} \
                         --target darwin-x64-tv-app-${BUILD_VARIANT} \
+                        --target darwin-x64-bridge-${BUILD_VARIANT} \
                         build \
                         --copy-artifacts-to objdir-clone \
                      "
             - name: Run Tests
-              timeout-minutes: 45
               run: |
                   ./scripts/run_in_build_env.sh \
                   "./scripts/tests/run_test_suite.py \
                      --chip-tool ./out/darwin-x64-darwin-framework-tool-${BUILD_VARIANT}/darwin-framework-tool \
-                     --target-skip-glob '{TestGroupMessaging}' \
+                     --target-skip-glob '{TestAccessControlConstraints}' \
                      run \
                      --iterations 1 \
+                     --test-timeout-seconds 120 \
                      --all-clusters-app ./out/darwin-x64-all-clusters-${BUILD_VARIANT}/chip-all-clusters-app \
                      --lock-app ./out/darwin-x64-lock-${BUILD_VARIANT}/chip-lock-app \
                      --ota-provider-app ./out/darwin-x64-ota-provider-${BUILD_VARIANT}/chip-ota-provider-app \
                      --ota-requestor-app ./out/darwin-x64-ota-requestor-${BUILD_VARIANT}/chip-ota-requestor-app \
                      --tv-app ./out/darwin-x64-tv-app-${BUILD_VARIANT}/chip-tv-app \
+                     --bridge-app ./out/darwin-x64-bridge-${BUILD_VARIANT}/chip-bridge-app \
+                  "
+            - name: Run OTA Test
+              run: |
+                  ./scripts/run_in_build_env.sh \
+                  "./scripts/tests/run_darwin_framework_ota_test.py \
+                     run \
+                     --darwin-framework-tool ./out/darwin-x64-darwin-framework-tool-${BUILD_VARIANT}/darwin-framework-tool \
+                     --ota-requestor-app ./out/darwin-x64-ota-requestor-${BUILD_VARIANT}/chip-ota-requestor-app \
+                     --ota-data-file /tmp/rawImage \
+                     --ota-image-file /tmp/otaImage \
+                     --ota-destination-file /tmp/downloadedImage \
+                     --ota-candidate-file /tmp/otaCandidateJSON \
                   "
             - name: Uploading core files
-              uses: actions/upload-artifact@v2
-              if: ${{ failure() }} && ${{ !env.ACT }}
+              uses: actions/upload-artifact@v3
+              if: ${{ failure() && !env.ACT }}
               with:
-                  name:
-                      crash-core-darwin-${{ matrix.build_variant }}${{ matrix.chip_tool }}
+                  name: crash-core-darwin-${{ matrix.build_variant }}
                   path: /cores/
                   # Cores are big; don't hold on to them too long.
                   retention-days: 5
             - name: Uploading diagnostic logs
-              uses: actions/upload-artifact@v2
-              if: ${{ failure() }} && ${{ !env.ACT }}
+              uses: actions/upload-artifact@v3
+              if: ${{ failure() && !env.ACT }}
               with:
-                  name:
-                      crash-log-darwin-${{ matrix.build_variant }}${{ matrix.chip_tool }}
+                  name: crash-log-darwin-${{ matrix.build_variant }}
                   path: ~/Library/Logs/DiagnosticReports/
-            - name: Uploading objdir for debugging
-              uses: actions/upload-artifact@v2
-              if: ${{ failure() }} && ${{ !env.ACT }}
+            - name: Uploading framework build log
+              uses: actions/upload-artifact@v3
+              if: ${{ failure() && !env.ACT }}
               with:
-                  name:
-                      crash-objdir-darwin-${{ matrix.build_variant }}${{ matrix.chip_tool }}
+                  name: framework-build-log-darwin-${{ matrix.build_variant }}
+                  path: out/darwin-x64-darwin-framework-tool-${{ matrix.build_variant }}/darwin_framework_build.log
+            - name: Uploading objdir for debugging
+              uses: actions/upload-artifact@v3
+              if: ${{ failure() && !env.ACT }}
+              with:
+                  name: crash-objdir-darwin-${{ matrix.build_variant }}
                   path: objdir-clone/
                   # objdirs are big; don't hold on to them too long.
                   retention-days: 5

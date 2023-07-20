@@ -17,7 +17,8 @@ include(${pigweed_dir}/pw_protobuf_compiler/proto.cmake)
 set(dir_pw_third_party_nanopb "${chip_dir}/third_party/nanopb/repo" CACHE STRING "" FORCE)
 
 pw_set_backend(pw_log pw_log_basic)
-pw_set_backend(pw_assert pw_assert_log)
+pw_set_backend(pw_assert.check pw_assert_log.check_backend)
+pw_set_backend(pw_assert.assert pw_assert.assert_compatibility_backend)
 pw_set_backend(pw_sys_io pw_sys_io.ameba)
 pw_set_backend(pw_trace pw_trace_tokenized)
 
@@ -35,7 +36,7 @@ pw_proto_library(attributes_service
   STRIP_PREFIX
     ${chip_dir}/examples/common/pigweed/protos
   DEPS
-    pw_protobuf.common_protos
+    pw_protobuf.common_proto
 )
 
 pw_proto_library(button_service
@@ -46,7 +47,7 @@ pw_proto_library(button_service
   STRIP_PREFIX
     ${chip_dir}/examples/common/pigweed/protos
   DEPS
-    pw_protobuf.common_protos
+    pw_protobuf.common_proto
 )
 
 pw_proto_library(device_service
@@ -59,7 +60,7 @@ pw_proto_library(device_service
   STRIP_PREFIX
     ${chip_dir}/examples/common/pigweed/protos
   DEPS
-    pw_protobuf.common_protos
+    pw_protobuf.common_proto
 )
 
 pw_proto_library(lighting_service
@@ -70,7 +71,7 @@ pw_proto_library(lighting_service
   STRIP_PREFIX
     ${chip_dir}/examples/common/pigweed/protos
   DEPS
-    pw_protobuf.common_protos
+    pw_protobuf.common_proto
 )
 
 pw_proto_library(locking_service
@@ -81,7 +82,7 @@ pw_proto_library(locking_service
   STRIP_PREFIX
     ${chip_dir}/examples/common/pigweed/protos
   DEPS
-    pw_protobuf.common_protos
+    pw_protobuf.common_proto
 )
 
 pw_proto_library(wifi_service
@@ -92,7 +93,7 @@ pw_proto_library(wifi_service
   PREFIX
     wifi_service
   DEPS
-    pw_protobuf.common_protos
+    pw_protobuf.common_proto
   STRIP_PREFIX
     ${chip_dir}/examples/common/pigweed/protos
 )
@@ -127,10 +128,8 @@ endif (matter_enable_ota_requestor)
 list(
     APPEND ${list_chip_main_sources}
 
-    ${chip_dir}/zzz_generated/all-clusters-minimal-app/zap-generated/callback-stub.cpp
-    ${chip_dir}/zzz_generated/all-clusters-minimal-app/zap-generated/IMClusterCommandHandler.cpp
-
     ${chip_dir}/examples/all-clusters-minimal-app/all-clusters-common/src/bridged-actions-stub.cpp
+    ${chip_dir}/examples/all-clusters-minimal-app/all-clusters-common/src/smco-stub.cpp
     ${chip_dir}/examples/all-clusters-minimal-app/all-clusters-common/src/static-supported-modes-manager.cpp
 
     ${chip_dir}/examples/all-clusters-minimal-app/ameba/main/chipinterface.cpp
@@ -224,8 +223,15 @@ list(
     -DUSE_ZAP_CONFIG
     -DCHIP_HAVE_CONFIG_H
     -DMBEDTLS_CONFIG_FILE=<mbedtls_config.h>
-    -DMATTER_ALL_CLUSTERS_APP=1
 )
+
+if (matter_enable_persistentstorage_audit)
+list(
+    APPEND chip_main_flags
+
+    -DCHIP_SUPPORT_ENABLE_STORAGE_API_AUDIT
+)
+endif (matter_enable_persistentstorage_audit)
 
 if (matter_enable_rpc)
 list(

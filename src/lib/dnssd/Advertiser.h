@@ -63,7 +63,7 @@ public:
         mPort = port;
         return *reinterpret_cast<Derived *>(this);
     }
-    uint64_t GetPort() const { return mPort; }
+    uint16_t GetPort() const { return mPort; }
 
     Derived & SetInterfaceId(Inet::InterfaceId interfaceId)
     {
@@ -88,12 +88,12 @@ public:
     const chip::ByteSpan GetMac() const { return chip::ByteSpan(mMacStorage, mMacLength); }
 
     // Common Flags
-    Derived & SetMRPConfig(const ReliableMessageProtocolConfig & config)
+    Derived & SetLocalMRPConfig(const Optional<ReliableMessageProtocolConfig> & config)
     {
-        mMRPConfig.SetValue(config);
+        mLocalMRPConfig = config;
         return *reinterpret_cast<Derived *>(this);
     }
-    const Optional<ReliableMessageProtocolConfig> & GetMRPConfig() const { return mMRPConfig; }
+    const Optional<ReliableMessageProtocolConfig> & GetLocalMRPConfig() const { return mLocalMRPConfig; }
     Derived & SetTcpSupported(Optional<bool> tcpSupported)
     {
         mTcpSupported = tcpSupported;
@@ -107,7 +107,7 @@ private:
     bool mEnableIPv4                 = true;
     uint8_t mMacStorage[kMaxMacSize] = {};
     size_t mMacLength                = 0;
-    Optional<ReliableMessageProtocolConfig> mMRPConfig;
+    Optional<ReliableMessageProtocolConfig> mLocalMRPConfig;
     Optional<bool> mTcpSupported;
 };
 
@@ -298,6 +298,13 @@ public:
      * If the advertiser has already been initialized, the method exits immediately with no error.
      */
     virtual CHIP_ERROR Init(chip::Inet::EndPointManager<chip::Inet::UDPEndPoint> * udpEndPointManager) = 0;
+
+    /**
+     * Returns whether the advertiser has completed the initialization.
+     *
+     * Returns true if the advertiser is ready to advertise services.
+     */
+    virtual bool IsInitialized() = 0;
 
     /**
      * Shuts down the advertiser.

@@ -20,6 +20,10 @@
 
 #include <platform/ConnectivityManager.h>
 #include <platform/internal/GenericConnectivityManagerImpl.h>
+#include <platform/internal/GenericConnectivityManagerImpl_UDP.h>
+#if INET_CONFIG_ENABLE_TCP_ENDPOINT
+#include <platform/internal/GenericConnectivityManagerImpl_TCP.h>
+#endif
 #if CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
 #include <platform/internal/GenericConnectivityManagerImpl_BLE.h>
 #else
@@ -61,7 +65,7 @@ namespace DeviceLayer {
 #if CHIP_DEVICE_CONFIG_ENABLE_WPA
 struct GDBusWpaSupplicant
 {
-    enum
+    enum WpaState
     {
         INIT,
         WPA_CONNECTING,
@@ -70,19 +74,21 @@ struct GDBusWpaSupplicant
         WPA_NO_INTERFACE_PATH,
         WPA_GOT_INTERFACE_PATH,
         WPA_INTERFACE_CONNECTED,
-    } state;
+    };
 
-    enum
+    enum WpaScanning
     {
         WIFI_SCANNING_IDLE,
         WIFI_SCANNING,
-    } scanState;
+    };
 
-    WpaFiW1Wpa_supplicant1 * proxy;
-    WpaFiW1Wpa_supplicant1Interface * iface;
-    WpaFiW1Wpa_supplicant1BSS * bss;
-    gchar * interfacePath;
-    gchar * networkPath;
+    WpaState state                          = INIT;
+    WpaScanning scanState                   = WIFI_SCANNING_IDLE;
+    WpaFiW1Wpa_supplicant1 * proxy          = nullptr;
+    WpaFiW1Wpa_supplicant1Interface * iface = nullptr;
+    WpaFiW1Wpa_supplicant1BSS * bss         = nullptr;
+    gchar * interfacePath                   = nullptr;
+    gchar * networkPath                     = nullptr;
 };
 #endif
 
@@ -105,6 +111,10 @@ class ConnectivityManagerImpl final : public ConnectivityManager,
 #else
                                       public Internal::GenericConnectivityManagerImpl_NoWiFi<ConnectivityManagerImpl>,
 #endif
+                                      public Internal::GenericConnectivityManagerImpl_UDP<ConnectivityManagerImpl>,
+#if INET_CONFIG_ENABLE_TCP_ENDPOINT
+                                      public Internal::GenericConnectivityManagerImpl_TCP<ConnectivityManagerImpl>,
+#endif
                                       public Internal::GenericConnectivityManagerImpl<ConnectivityManagerImpl>
 {
     // Allow the ConnectivityManager interface class to delegate method calls to
@@ -113,7 +123,6 @@ class ConnectivityManagerImpl final : public ConnectivityManager,
 
 public:
 #if CHIP_DEVICE_CONFIG_ENABLE_WPA
-    CHIP_ERROR ProvisionWiFiNetwork(const char * ssid, const char * key);
     void
     SetNetworkStatusChangeCallback(NetworkCommissioning::Internal::BaseDriver::NetworkStatusChangeCallback * statusChangeCallback)
     {
@@ -128,9 +137,9 @@ public:
     void StartWiFiManagement();
     bool IsWiFiManagementStarted();
     int32_t GetDisconnectReason();
-    CHIP_ERROR GetWiFiBssId(ByteSpan & value);
-    CHIP_ERROR GetWiFiSecurityType(uint8_t & securityType);
-    CHIP_ERROR GetWiFiVersion(uint8_t & wiFiVersion);
+    CHIP_ERROR GetWiFiBssId(MutableByteSpan & value);
+    CHIP_ERROR GetWiFiSecurityType(app::Clusters::WiFiNetworkDiagnostics::SecurityTypeEnum & securityType);
+    CHIP_ERROR GetWiFiVersion(app::Clusters::WiFiNetworkDiagnostics::WiFiVersionEnum & wiFiVersion);
     CHIP_ERROR GetConfiguredNetwork(NetworkCommissioning::Network & network);
     CHIP_ERROR StartWiFiScan(ByteSpan ssid, NetworkCommissioning::WiFiDriver::ScanCallback * callback);
 #endif
@@ -196,7 +205,7 @@ private:
 
     static bool _GetBssInfo(const gchar * bssPath, NetworkCommissioning::WiFiScanResponse & result);
 
-    static bool mAssociattionStarted;
+    static bool mAssociationStarted;
     static BitFlags<ConnectivityFlags> mConnectivityFlag;
     static struct GDBusWpaSupplicant mWpaSupplicant;
     static std::mutex mWpaSupplicantMutex;

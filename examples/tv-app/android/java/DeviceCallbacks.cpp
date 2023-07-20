@@ -24,8 +24,6 @@
  **/
 #include "DeviceCallbacks.h"
 
-#include <app-common/zap-generated/attribute-id.h>
-#include <app-common/zap-generated/cluster-id.h>
 #include <app/CommandHandler.h>
 #include <app/server/Dnssd.h>
 #include <app/util/af.h>
@@ -80,19 +78,9 @@ void DeviceCallbacks::OnPlatformEvent(const ChipDeviceEvent * event)
     case DeviceEventType::kCommissioningComplete:
         OnCommissioningComplete(event);
         break;
-    case DeviceEventType::kSessionEstablished:
-        OnSessionEstablished(event);
-        break;
     }
 }
 
-void DeviceCallbacks::OnSessionEstablished(const ChipDeviceEvent * event)
-{
-    if (event->SessionEstablished.IsCommissioner)
-    {
-        ChipLogProgress(AppServer, "Commissioner detected!");
-    }
-}
 void DeviceCallbacks::OnCommissioningComplete(const ChipDeviceEvent * event)
 {
     JNIEnv * env = JniReferences::GetInstance().GetEnvForCurrentThread();

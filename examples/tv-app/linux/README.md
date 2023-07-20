@@ -1,13 +1,13 @@
-# CHIP TV Example
+# Matter TV Example
 
 An example showing the use of CHIP on the Linux. The document will describe how
-to build and run CHIP TV Example on Raspberry Pi. This doc is tested on **Ubuntu
-for Raspberry Pi Server 20.04 LTS (aarch64)** and **Ubuntu for Raspberry Pi
-Desktop 20.10 (aarch64)**
+to build and run Matter TV Example on Raspberry Pi. This doc is tested on
+**Ubuntu for Raspberry Pi Server 20.04 LTS (aarch64)** and **Ubuntu for
+Raspberry Pi Desktop 20.10 (aarch64)**
 
 <hr>
 
--   [CHIP TV Example](#chip-tv-example)
+-   [Matter TV Example](#matter-tv-example)
     -   [Building](#building)
     -   [Exercising Commissioning](#exercising-commissioning)
     -   [App Platform commands](#app-platform-commands)
@@ -15,8 +15,6 @@ Desktop 20.10 (aarch64)**
     -   [Running the Complete Example on Raspberry Pi 4](#running-the-complete-example-on-raspberry-pi-4)
 
 <hr>
-
-<a name="building"></a>
 
 ## Building
 
@@ -37,8 +35,6 @@ Desktop 20.10 (aarch64)**
           $ cd ~/connectedhomeip/examples/tv-app/linux
           $ rm -rf out/
 
-<a name="running-complete-example"></a>
-
 ## Exercising Commissioning
 
 -   Regular Commissioning
@@ -46,8 +42,7 @@ Desktop 20.10 (aarch64)**
 Start the tv-app. Set ports to not conflict with other Matter apps you might run
 on the same machine (chip-tool, tv-casting-app, etc)
 
-    $ ./out/host/chip-tv-app --secured-device-port 5640
-    --secured-commissioner-port 5552
+    $ ./out/debug/chip-tv-app --secured-device-port 5640 --secured-commissioner-port 5552
 
 Using the tv-app shell, invoke the controller commands:
 
@@ -79,14 +74,15 @@ As an app platform, Content Apps can be launched and assigned to endpoints
 following (see Video Player Architecture in the Device Library spec).
 
 There is a dummy app platform included in the linux tv-app which includes a
-small number of hardcoded apps. See AppImpl.h/.cpp for this dummy
-implementation. These apps have hardcoded values for many operations - on a real
-device, these apps would usually be developed by streaming video content
-providers and the native platform may or may not provide Matter interfaces to
-these apps. In some cases, the video player platform will bridge its existing
-internal interfaces to Matter, allowing apps to continue to not be Matter-aware,
-while other platforms may provide Matter interfaces to Content Apps so that they
-can directly respond to each Matter cluster.
+small number of hardcoded apps. See `examples/tv-app/tv-common/src/AppTv.h` and
+`examples/tv-app/tv-common/src/AppTv.cpp` for this dummy implementation. These
+apps have hardcoded values for many operations - on a real device, these apps
+would usually be developed by streaming video content providers and the native
+platform may or may not provide Matter interfaces to these apps. In some cases,
+the video player platform will bridge its existing internal interfaces to
+Matter, allowing apps to continue to not be Matter-aware, while other platforms
+may provide Matter interfaces to Content Apps so that they can directly respond
+to each Matter cluster.
 
 On Linux, there are shell commands to start and stop the dummy apps (by vendor
 id):
@@ -118,8 +114,8 @@ entry in the UDC cache):
 You can use chip-tool to launch apps by invoking the Application Launcher
 cluster on endpoint 1 using chiptool:
 
-    $ ./out/host/chip-tool applicationlauncher launch-app Data CatalogVendorId ApplicationId node-id endpoint-id
-    $ ./out/host/chip-tool applicationlauncher launch-app foo1 1 App2 1234 1
+    $ ./out/debug/chip-tool applicationlauncher launch-app Data CatalogVendorId ApplicationId node-id endpoint-id
+    $ ./out/debug/chip-tool applicationlauncher launch-app foo1 1 App2 1234 1
 
 -   Target Navigation from chip-tool
 
@@ -128,14 +124,14 @@ player) and on Content App endpoints:
 
 Read targets for a given endpoint:
 
-    $ ./out/host/chip-tool targetnavigator read attr-name node-id endpoint-id
-    $ ./out/host/chip-tool targetnavigator read target-navigator-list 1234 1 (video player endpoint 1)
-    $ ./out/host/chip-tool targetnavigator read target-navigator-list 1234 6 (content app endpoint 6 - requires app to be launched)
+    $ ./out/debug/chip-tool targetnavigator read attr-name node-id endpoint-id
+    $ ./out/debug/chip-tool targetnavigator read target-navigator-list 1234 1 (video player endpoint 1)
+    $ ./out/debug/chip-tool targetnavigator read target-navigator-list 1234 6 (content app endpoint 6 - requires app to be launched)
 
 Navigate to a new target:
 
-    $ ./out/host/chip-tool targetnavigator navigate-target Target Data node-id endpoint-id
-    $ ./out/host/chip-tool targetnavigator navigate-target 2 foo1 1234 6 (target id 2 on endpoint 6)
+    $ ./out/debug/chip-tool targetnavigator navigate-target Target Data node-id endpoint-id
+    $ ./out/debug/chip-tool targetnavigator navigate-target 2 foo1 1234 6 (target id 2 on endpoint 6)
 
 ## Casting
 
@@ -147,11 +143,11 @@ player and/or a Content App on it.
 
 Start the tv-app:
 
-    $ ./out/host/chip-tv-app --secured-device-port 5640 --secured-commissioner-port 5552
+    $ ./out/debug/chip-tv-app --secured-device-port 5640 --secured-commissioner-port 5552
 
 Start the tv-casting-app:
 
-    $ ./out/host/chip-tv-casting-app
+    $ ./out/debug/chip-tv-casting-app
 
 TV casting app should discover video players on the network. Into the shell,
 enter "1" to select the first one in the list:
@@ -186,8 +182,8 @@ TODO
 
     1. A Raspberry Pi 4 board
     2. A USB Bluetooth Dongle, Ubuntu desktop will send Bluetooth advertisement,
-       which will block CHIP from connecting via BLE. On Ubuntu server, you need
-       to install `pi-bluetooth` via APT.
+       which will block Matter from connecting via BLE. On Ubuntu server, you
+       need to install `pi-bluetooth` via APT.
     3. Ubuntu 20.04 or newer image for ARM64 platform.
 
 -   Building

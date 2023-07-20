@@ -64,9 +64,7 @@ private:
     // ===== Members that implement the BLEManager internal interface.
 
     CHIP_ERROR _Init(void);
-    CHIP_ERROR _Shutdown() { return CHIP_NO_ERROR; }
-    CHIPoBLEServiceMode _GetCHIPoBLEServiceMode(void);
-    CHIP_ERROR _SetCHIPoBLEServiceMode(CHIPoBLEServiceMode val);
+    void _Shutdown() {}
     bool _IsAdvertisingEnabled(void);
     CHIP_ERROR _SetAdvertisingEnabled(bool val);
     bool _IsAdvertising(void);
@@ -121,7 +119,7 @@ private:
     enum
     {
         kMaxConnections      = BLE_LAYER_NUM_BLE_ENDPOINTS,
-        kMaxDeviceNameLength = 16,
+        kMaxDeviceNameLength = 32,
         kUnusedIndex         = 0xFF,
     };
 
@@ -167,6 +165,7 @@ private:
         BLE_E_FAIL,
         BLE_E_START_ADV_FAILED,
         BLE_INTERNAL_ERROR,
+        BLE_KW_MSG_2M_UPGRADE_ERROR,
     } ble_err_t;
 
     typedef struct ble_att_written_data_s
@@ -198,6 +197,9 @@ private:
     uint16_t mNumGAPCons;
     uint8_t mAdvHandle;
     char mDeviceName[kMaxDeviceNameLength + 1];
+#if CHIP_ENABLE_ADDITIONAL_DATA_ADVERTISING
+    chip::System::PacketBufferHandle c3AdditionalDataBufferHandle;
+#endif
 
     void DriveBLEState(void);
     CHIP_ERROR ConfigureAdvertising(void);
@@ -218,6 +220,10 @@ private:
     bool UnsetSubscribed(uint16_t conId);
     bool IsSubscribed(uint16_t conId);
     CHIP_ERROR ConfigureAdvertisingData(void);
+#if CHIP_ENABLE_ADDITIONAL_DATA_ADVERTISING
+    CHIP_ERROR EncodeAdditionalDataTlv();
+    void HandleC3ReadRequest(blekw_msg_t * msg);
+#endif
     BLEManagerImpl::ble_err_t blekw_send_event(int8_t connection_handle, uint16_t handle, uint8_t * data, uint32_t len);
     bool RemoveConnection(uint8_t connectionHandle);
     void AddConnection(uint8_t connectionHandle);
@@ -280,11 +286,6 @@ inline BLEManagerImpl & BLEMgrImpl(void)
 inline BleLayer * BLEManagerImpl::_GetBleLayer()
 {
     return this;
-}
-
-inline BLEManager::CHIPoBLEServiceMode BLEManagerImpl::_GetCHIPoBLEServiceMode(void)
-{
-    return mServiceMode;
 }
 
 } // namespace Internal

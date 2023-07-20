@@ -30,10 +30,9 @@ namespace Test {
 CHIP_ERROR IOContext::Init()
 {
     CHIP_ERROR err = Platform::MemoryInit();
-    chip::DeviceLayer::SetConfigurationMgr(&chip::DeviceLayer::ConfigurationManagerImpl::GetDefaultInstance());
+    chip::DeviceLayer::SetConfigurationMgr(&chip::DeviceLayer::ConfigurationMgrImpl());
 
-    gSystemLayer.Init();
-
+    InitSystemLayer();
     InitNetwork();
 
     mSystemLayer        = &gSystemLayer;
@@ -44,15 +43,11 @@ CHIP_ERROR IOContext::Init()
 }
 
 // Shutdown all layers, finalize operations
-CHIP_ERROR IOContext::Shutdown()
+void IOContext::Shutdown()
 {
-    CHIP_ERROR err = CHIP_NO_ERROR;
-
     ShutdownNetwork();
     ShutdownSystemLayer();
     Platform::MemoryShutdown();
-
-    return err;
 }
 
 void IOContext::DriveIO()

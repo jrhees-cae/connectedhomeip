@@ -16,10 +16,16 @@
  *
  */
 
+#import <Matter/Matter.h>
+
+#import "logging/logging.h"
+
 #include "commands/common/Commands.h"
-
+#include "commands/discover/Commands.h"
+#include "commands/interactive/Commands.h"
 #include "commands/pairing/Commands.h"
-
+#include "commands/payload/Commands.h"
+#include "commands/provider/Commands.h"
 #include "commands/storage/Commands.h"
 
 #include <zap-generated/cluster/Commands.h>
@@ -27,10 +33,18 @@
 
 int main(int argc, const char * argv[])
 {
-    Commands commands;
-    registerCommandsPairing(commands);
-    registerCommandsStorage(commands);
-    registerCommandsTests(commands);
-    registerClusters(commands);
-    return commands.Run(argc, (char **) argv);
+    @autoreleasepool {
+        dft::logging::Setup();
+
+        Commands commands;
+        registerCommandsPairing(commands);
+        registerCommandsDiscover(commands);
+        registerCommandsInteractive(commands);
+        registerCommandsPayload(commands);
+        registerClusterOtaSoftwareUpdateProviderInteractive(commands);
+        registerCommandsStorage(commands);
+        registerCommandsTests(commands);
+        registerClusters(commands);
+        return commands.Run(argc, (char **) argv);
+    }
 }

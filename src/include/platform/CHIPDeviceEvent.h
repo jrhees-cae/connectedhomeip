@@ -134,25 +134,11 @@ enum PublicEventTypes
     kServiceConnectivityChange,
 
     /**
-     * Fabric Membership Change
-     *
-     * Signals a change in the device's membership in a chip fabric.
-     */
-    kFabricMembershipChange,
-
-    /**
      * Service Provisioning Change
      *
      * Signals a change to the device's service provisioning state.
      */
     kServiceProvisioningChange,
-
-    /**
-     * Account Pairing Change
-     *
-     * Signals a change to the device's state with respect to being paired to a user account.
-     */
-    kAccountPairingChange,
 
     /**
      * Time Sync Change
@@ -166,14 +152,7 @@ enum PublicEventTypes
      *
      * Signals a change to the sleepy end device interval.
      */
-    kSEDIntervalChange,
-
-    /**
-     * Security Session Established
-     *
-     * Signals that an external entity has established a new security session with the device.
-     */
-    kSessionEstablished,
+    kICDPollingIntervalChange,
 
     /**
      * CHIPoBLE Connection Established
@@ -217,6 +196,11 @@ enum PublicEventTypes
     kInterfaceIpAddressChanged,
 
     /**
+     * Signals that the commissioning window has opened or closed.
+     */
+    kCommissioningWindowStatusChanged,
+
+    /**
      * Commissioning has completed by a call to the general commissioning cluster command.
      */
     kCommissioningComplete,
@@ -228,14 +212,24 @@ enum PublicEventTypes
     kFailSafeTimerExpired,
 
     /**
+     * Signals that the fail-safe state changed (Armed/Disarmed)
+     */
+    kFailSafeStateChanged,
+
+    /**
      *
      */
     kOperationalNetworkEnabled,
 
     /**
-     * Signals that DNS-SD platform layer was initialized and is ready to operate.
+     * Signals that DNS-SD has been initialized and is ready to operate.
      */
-    kDnssdPlatformInitialized,
+    kDnssdInitialized,
+
+    /**
+     * Signals that DNS-SD backend was restarted and services must be published again.
+     */
+    kDnssdRestartNeeded,
 
     /**
      * Signals that bindings were updated.
@@ -246,6 +240,44 @@ enum PublicEventTypes
      * Signals that the state of the OTA engine changed.
      */
     kOtaStateChanged,
+
+    /**
+     * Server initialization has completed.
+     *
+     * Signals that all server components have been initialized and the node is ready to establish
+     * connections with other nodes. This event can be used to trigger on-boot actions that require
+     * sending messages to other nodes.
+     */
+    kServerReady,
+
+    /**
+     * TODO ICD: kChipMsgSentEvent and kChipMsgRxEventHandled should be InternalEventTypes.
+     * However the ICD manager leverages those events and its event handler is registered as an application
+     * event handler.
+     * ICDEventManager will have to expose 'ICDEventHandler' publicly to 'DispatchEventToDeviceLayer'.
+     */
+
+    /**
+     * An Exchange Context sent a message.
+     * This event contains a with MessageSent structure.
+     */
+    kChipMsgSentEvent,
+
+    /**
+     * An Exchange Context that was waiting for a response is no longer waiting for it.
+     * This event can occur due to any of the following:
+     *  - A response message was received.
+     *  - An exchange context timed out waiting for a response.
+     *  - The exchange context was closed while a response was expected.
+     *
+     * This event contains an RxEventContext structure.
+     */
+    kChipMsgRxEventHandled,
+
+    /**
+     * An application event occured that should wake up the system/device
+     */
+    kAppWakeUpEvent,
 };
 
 /**
@@ -308,6 +340,34 @@ enum ActivityChange
 enum OtaState
 {
     kOtaSpaceAvailable = 0,
+    /**
+     * This state indicates that Node is currently downloading a software update.
+     */
+    kOtaDownloadInProgress,
+    /**
+     * This state indicates that Node has successfully downloaded a software update.
+     */
+    kOtaDownloadComplete,
+    /**
+     * This state indicates that Node has failed to download a software update.
+     */
+    kOtaDownloadFailed,
+    /**
+     * This state indicates that Node has aborted the download of a software update.
+     */
+    kOtaDownloadAborted,
+    /**
+     * This state indicate that Node is currently in the process of verifying and applying a software update.
+     */
+    kOtaApplyInProgress,
+    /**
+     * This state indicates that Node has successfully applied a software update.
+     */
+    kOtaApplyComplete,
+    /**
+     * This state indicates that Node has failed to apply a software update.
+     */
+    kOtaApplyFailed,
 };
 
 inline ConnectivityChange GetConnectivityChange(bool prevState, bool newState)
@@ -473,6 +533,10 @@ struct ChipDeviceEvent final
             uint64_t nodeId;
             FabricIndex fabricIndex;
         } CommissioningComplete;
+        struct
+        {
+            FabricIndex fabricIndex;
+        } BindingsChanged;
 
         struct
         {
@@ -480,6 +544,16 @@ struct ChipDeviceEvent final
             bool addNocCommandHasBeenInvoked;
             bool updateNocCommandHasBeenInvoked;
         } FailSafeTimerExpired;
+
+        struct
+        {
+            bool armed;
+        } FailSafeState;
+
+        struct
+        {
+            bool open;
+        } CommissioningWindowStatus;
 
         struct
         {
@@ -491,6 +565,21 @@ struct ChipDeviceEvent final
         {
             OtaState newState;
         } OtaStateChanged;
+
+        struct
+        {
+            bool ExpectResponse;
+        } MessageSent;
+
+        struct
+        {
+            /*
+             * wasReceived is only true when the event was triggered by a response message reception.
+             * See the brief of kChipMsgRxEventHandled, above in this file, for additional details.
+             */
+            bool wasReceived;
+            bool clearsExpectedResponse;
+        } RxEventContext;
     };
 
     void Clear() { memset(this, 0, sizeof(*this)); }

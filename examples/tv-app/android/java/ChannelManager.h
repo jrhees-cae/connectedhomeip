@@ -38,7 +38,9 @@ public:
 
     void HandleChangeChannel(CommandResponseHelper<ChangeChannelResponseType> & helper, const CharSpan & match) override;
     bool HandleChangeChannelByNumber(const uint16_t & majorNumber, const uint16_t & minorNumber) override;
-    bool HandleSkipChannel(const uint16_t & count) override;
+    bool HandleSkipChannel(const int16_t & count) override;
+
+    uint32_t GetFeatureMap(chip::EndpointId endpoint) override;
 
 private:
     jobject mChannelManagerObject      = nullptr;
@@ -49,4 +51,7 @@ private:
     jmethodID mChangeChannelMethod         = nullptr;
     jmethodID mChangeChannelByNumberMethod = nullptr;
     jmethodID mSkipChannelMethod           = nullptr;
+
+    // TODO: set this based upon meta data from app
+    uint32_t mDynamicEndpointFeatureMap = 3;
 };

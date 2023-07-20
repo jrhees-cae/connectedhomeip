@@ -29,21 +29,19 @@
 #include <lib/support/CHIPMem.h>
 #include <platform/CHIPDeviceLayer.h>
 
+#include <app/clusters/network-commissioning/network-commissioning.h>
 #include <app/server/OnboardingCodesUtil.h>
 #include <app/server/Server.h>
 
 #include <credentials/DeviceAttestationCredsProvider.h>
 #include <credentials/examples/DeviceAttestationCredsExample.h>
+#include <platform/ESP32/ESP32Utils.h>
+#include <platform/ESP32/NetworkCommissioningDriver.h>
 
-#include <app-common/zap-generated/att-storage.h>
-#include <app-common/zap-generated/attribute-id.h>
-#include <app-common/zap-generated/attribute-type.h>
 #include <app-common/zap-generated/callback.h>
-#include <app-common/zap-generated/cluster-id.h>
 #include <app-common/zap-generated/cluster-objects.h>
-#include <app-common/zap-generated/command-id.h>
+#include <app/att-storage.h>
 #include <app/server/Dnssd.h>
-#include <app/util/af-event.h>
 #include <app/util/af.h>
 #include <setup_payload/QRCodeSetupPayloadGenerator.h>
 
@@ -65,8 +63,6 @@ static void chip_shell_task(void * args)
 {
 
     cmd_misc_init();
-    cmd_ping_init();
-    cmd_send_init();
 
     Engine::Root().RunMainLoop();
 }
@@ -96,13 +92,6 @@ void DeviceEventCallback(const ChipDeviceEvent * event, intptr_t arg)
             ChipLogProgress(Shell, "Lost IPv6 connectivity...");
         }
 
-        break;
-
-    case DeviceEventType::kSessionEstablished:
-        if (event->SessionEstablished.IsCommissioner)
-        {
-            ChipLogProgress(Shell, "Commissioner detected!");
-        }
         break;
 
     case DeviceEventType::kCHIPoBLEConnectionEstablished:
@@ -161,6 +150,9 @@ void printQRCode()
 }
 #endif // CONFIG_HAVE_DISPLAY
 
+app::Clusters::NetworkCommissioning::Instance
+    sWiFiNetworkCommissioningInstance(0 /* Endpoint Id */, &(NetworkCommissioning::ESPWiFiDriver::GetInstance()));
+
 void InitServer(intptr_t)
 {
     // Start IM server
@@ -170,6 +162,7 @@ void InitServer(intptr_t)
 
     // Device Attestation & Onboarding codes
     chip::Credentials::SetDeviceAttestationCredentialsProvider(chip::Credentials::Examples::GetExampleDACProvider());
+    sWiFiNetworkCommissioningInstance.Init();
     chip::DeviceLayer::ConfigurationMgr().LogDeviceConfig();
 
     if (chip::Server::GetInstance().GetCommissioningWindowManager().OpenBasicCommissioningWindow() != CHIP_NO_ERROR)
@@ -185,7 +178,15 @@ void InitServer(intptr_t)
 extern "C" void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
     chip::Platform::MemoryInit();
+#if CHIP_DEVICE_CONFIG_ENABLE_WIFI
+    if (DeviceLayer::Internal::ESP32Utils::InitWiFiStack() != CHIP_NO_ERROR)
+    {
+        ESP_LOGE(TAG, "Failed to initialize the Wi-Fi stack");
+        return;
+    }
+#endif
     chip::DeviceLayer::PlatformMgr().InitChipStack();
     chip::DeviceLayer::PlatformMgr().StartEventLoopTask();
 
@@ -212,7 +213,7 @@ extern "C" void app_main(void)
     xTaskCreate(&chip_shell_task, "chip_shell", 8192, NULL, 5, NULL);
 #endif /* CONFIG_ENABLE_CHIP_SHELL */
 
-    while (1)
+    while (true)
     {
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }

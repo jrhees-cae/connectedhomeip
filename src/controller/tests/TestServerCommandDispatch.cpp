@@ -26,7 +26,7 @@
 #include "app-common/zap-generated/ids/Clusters.h"
 #include "protocols/interaction_model/Constants.h"
 #include <app-common/zap-generated/cluster-objects.h>
-#include <app/AppBuildConfig.h>
+#include <app/AppConfig.h>
 #include <app/CommandHandlerInterface.h>
 #include <app/InteractionModelEngine.h>
 #include <app/tests/AppTestContext.h>
@@ -34,6 +34,7 @@
 #include <controller/InvokeInteraction.h>
 #include <controller/ReadInteraction.h>
 #include <lib/support/ErrorStr.h>
+#include <lib/support/UnitTestContext.h>
 #include <lib/support/UnitTestRegistration.h>
 #include <lib/support/logging/CHIPLogging.h>
 #include <messaging/tests/MessagingContext.h>
@@ -62,7 +63,7 @@ ResponseDirective responseDirective;
 class TestClusterCommandHandler : public chip::app::CommandHandlerInterface
 {
 public:
-    TestClusterCommandHandler() : chip::app::CommandHandlerInterface(Optional<EndpointId>::Missing(), TestCluster::Id)
+    TestClusterCommandHandler() : chip::app::CommandHandlerInterface(Optional<EndpointId>::Missing(), Clusters::UnitTesting::Id)
     {
         chip::app::InteractionModelEngine::GetInstance()->RegisterCommandHandler(this);
     }
@@ -82,12 +83,12 @@ private:
 
 void TestClusterCommandHandler::InvokeCommand(chip::app::CommandHandlerInterface::HandlerContext & handlerContext)
 {
-    HandleCommand<TestCluster::Commands::TestSimpleArgumentRequest::DecodableType>(
+    HandleCommand<Clusters::UnitTesting::Commands::TestSimpleArgumentRequest::DecodableType>(
         handlerContext, [](chip::app::CommandHandlerInterface::HandlerContext & ctx, const auto & requestPayload) {
             if (responseDirective == kSendDataResponse)
             {
-                TestCluster::Commands::TestStructArrayArgumentResponse::Type dataResponse;
-                TestCluster::Structs::NestedStructList::Type nestedStructList[4];
+                Clusters::UnitTesting::Commands::TestStructArrayArgumentResponse::Type dataResponse;
+                Clusters::UnitTesting::Structs::NestedStructList::Type nestedStructList[4];
 
                 uint8_t i = 0;
                 for (auto & item : nestedStructList)
@@ -123,7 +124,7 @@ CHIP_ERROR TestClusterCommandHandler::EnumerateAcceptedCommands(const ConcreteCl
     }
 
     // We just have one command id.
-    callback(TestCluster::Commands::TestSimpleArgumentRequest::Id, context);
+    callback(Clusters::UnitTesting::Commands::TestSimpleArgumentRequest::Id, context);
     return CHIP_NO_ERROR;
 }
 
@@ -151,9 +152,9 @@ private:
 // We want to send a TestSimpleArgumentRequest::Type, but get a
 // TestStructArrayArgumentResponse in return, so need to shadow the actual
 // ResponseType that TestSimpleArgumentRequest has.
-struct FakeRequest : public TestCluster::Commands::TestSimpleArgumentRequest::Type
+struct FakeRequest : public Clusters::UnitTesting::Commands::TestSimpleArgumentRequest::Type
 {
-    using ResponseType = TestCluster::Commands::TestStructArrayArgumentResponse::DecodableType;
+    using ResponseType = Clusters::UnitTesting::Commands::TestStructArrayArgumentResponse::DecodableType;
 };
 
 void TestCommandInteraction::TestNoHandler(nlTestSuite * apSuite, void * apContext)
@@ -196,7 +197,7 @@ static const int kDescriptorAttributeArraySize = 254;
 
 // Declare Descriptor cluster attributes
 DECLARE_DYNAMIC_ATTRIBUTE_LIST_BEGIN(descriptorAttrs)
-DECLARE_DYNAMIC_ATTRIBUTE(chip::app::Clusters::Descriptor::Attributes::DeviceList::Id, ARRAY, kDescriptorAttributeArraySize,
+DECLARE_DYNAMIC_ATTRIBUTE(chip::app::Clusters::Descriptor::Attributes::DeviceTypeList::Id, ARRAY, kDescriptorAttributeArraySize,
                           0), /* device list */
     DECLARE_DYNAMIC_ATTRIBUTE(chip::app::Clusters::Descriptor::Attributes::ServerList::Id, ARRAY, kDescriptorAttributeArraySize,
                               0), /* server list */
@@ -210,11 +211,11 @@ DECLARE_DYNAMIC_ATTRIBUTE_LIST_BEGIN(testClusterAttrs)
 DECLARE_DYNAMIC_ATTRIBUTE_LIST_END();
 
 constexpr CommandId testClusterCommands1[] = {
-    TestCluster::Commands::TestSimpleArgumentRequest::Id,
+    Clusters::UnitTesting::Commands::TestSimpleArgumentRequest::Id,
     kInvalidCommandId,
 };
 DECLARE_DYNAMIC_CLUSTER_LIST_BEGIN(testEndpointClusters1)
-DECLARE_DYNAMIC_CLUSTER(chip::app::Clusters::TestCluster::Id, testClusterAttrs, testClusterCommands1, nullptr),
+DECLARE_DYNAMIC_CLUSTER(chip::app::Clusters::UnitTesting::Id, testClusterAttrs, testClusterCommands1, nullptr),
     DECLARE_DYNAMIC_CLUSTER(chip::app::Clusters::Descriptor::Id, descriptorAttrs, nullptr, nullptr),
     DECLARE_DYNAMIC_CLUSTER_LIST_END;
 
@@ -224,14 +225,14 @@ constexpr CommandId testClusterCommands2[] = {
     kInvalidCommandId,
 };
 DECLARE_DYNAMIC_CLUSTER_LIST_BEGIN(testEndpointClusters2)
-DECLARE_DYNAMIC_CLUSTER(chip::app::Clusters::TestCluster::Id, testClusterAttrs, testClusterCommands2, nullptr),
+DECLARE_DYNAMIC_CLUSTER(chip::app::Clusters::UnitTesting::Id, testClusterAttrs, testClusterCommands2, nullptr),
     DECLARE_DYNAMIC_CLUSTER(chip::app::Clusters::Descriptor::Id, descriptorAttrs, nullptr, nullptr),
     DECLARE_DYNAMIC_CLUSTER_LIST_END;
 
 DECLARE_DYNAMIC_ENDPOINT(testEndpoint2, testEndpointClusters2);
 
 DECLARE_DYNAMIC_CLUSTER_LIST_BEGIN(testEndpointClusters3)
-DECLARE_DYNAMIC_CLUSTER(chip::app::Clusters::TestCluster::Id, testClusterAttrs, nullptr, nullptr),
+DECLARE_DYNAMIC_CLUSTER(chip::app::Clusters::UnitTesting::Id, testClusterAttrs, nullptr, nullptr),
     DECLARE_DYNAMIC_CLUSTER(chip::app::Clusters::Descriptor::Id, descriptorAttrs, nullptr, nullptr),
     DECLARE_DYNAMIC_CLUSTER_LIST_END;
 
@@ -307,7 +308,7 @@ void TestCommandInteraction::TestDataResponseHelper(nlTestSuite * apSuite, void 
         {
             // We only expect 0 or 1 command ids here.
             NL_TEST_ASSERT(apSuite, count == 0);
-            NL_TEST_ASSERT(apSuite, iter.GetValue() == TestCluster::Commands::TestSimpleArgumentRequest::Id);
+            NL_TEST_ASSERT(apSuite, iter.GetValue() == Clusters::UnitTesting::Commands::TestSimpleArgumentRequest::Id);
             ++count;
         }
         NL_TEST_ASSERT(apSuite, iter.GetStatus() == CHIP_NO_ERROR);
@@ -321,9 +322,12 @@ void TestCommandInteraction::TestDataResponseHelper(nlTestSuite * apSuite, void 
         }
         onSuccessWasCalled = true;
     };
-    auto readFailureCb = [&onFailureWasCalled](const ConcreteDataAttributePath *, CHIP_ERROR aError) { onFailureWasCalled = true; };
+    auto readFailureCb = [&onFailureWasCalled](const ConcreteDataAttributePath *, CHIP_ERROR aError) {
+        onFailureWasCalled = true;
+        ChipLogError(NotSpecified, "TEST FAILURE: %" CHIP_ERROR_FORMAT, aError.Format());
+    };
 
-    chip::Controller::ReadAttribute<TestCluster::Attributes::AcceptedCommandList::TypeInfo>(
+    chip::Controller::ReadAttribute<Clusters::UnitTesting::Attributes::AcceptedCommandList::TypeInfo>(
         &ctx.GetExchangeManager(), sessionHandle, kTestEndpointId, readSuccessCb, readFailureCb);
 
     ctx.DrainAndServiceIO();
@@ -409,9 +413,7 @@ nlTestSuite sSuite =
 
 int TestCommandInteractionTest()
 {
-    TestContext gContext;
-    nlTestRunner(&sSuite, &gContext);
-    return (nlTestRunnerStats(&sSuite));
+    return chip::ExecuteTestsWithContext<TestContext>(&sSuite);
 }
 
 CHIP_REGISTER_TEST_SUITE(TestCommandInteractionTest)

@@ -30,12 +30,14 @@
 #include <app/ObjectList.h>
 #include <app/tests/AppTestContext.h>
 #include <lib/core/CHIPCore.h>
-#include <lib/core/CHIPTLV.h>
-#include <lib/core/CHIPTLVDebug.hpp>
-#include <lib/core/CHIPTLVUtilities.hpp>
+#include <lib/core/TLV.h>
+#include <lib/core/TLVDebug.h>
+#include <lib/core/TLVUtilities.h>
 #include <lib/support/CHIPCounter.h>
+#include <lib/support/CodeUtils.h>
 #include <lib/support/EnforceFormat.h>
 #include <lib/support/ErrorStr.h>
+#include <lib/support/UnitTestContext.h>
 #include <lib/support/UnitTestRegistration.h>
 #include <lib/support/logging/Constants.h>
 #include <messaging/ExchangeContext.h>
@@ -53,9 +55,9 @@ static const chip::EndpointId kTestEndpointId1    = 2;
 static const chip::EndpointId kTestEndpointId2    = 3;
 static const chip::TLV::Tag kLivenessDeviceStatus = chip::TLV::ContextTag(1);
 
-static uint8_t gDebugEventBuffer[128];
-static uint8_t gInfoEventBuffer[128];
-static uint8_t gCritEventBuffer[128];
+static uint8_t gDebugEventBuffer[120];
+static uint8_t gInfoEventBuffer[120];
+static uint8_t gCritEventBuffer[120];
 static chip::app::CircularEventBuffer gCircularEventBuffer[3];
 
 class TestContext : public chip::Test::AppContext
@@ -79,8 +81,7 @@ public:
             { &gCritEventBuffer[0], sizeof(gCritEventBuffer), chip::app::PriorityLevel::Critical },
         };
 
-        chip::app::EventManagement::CreateEventManagement(&ctx->GetExchangeManager(),
-                                                          sizeof(logStorageResources) / sizeof(logStorageResources[0]),
+        chip::app::EventManagement::CreateEventManagement(&ctx->GetExchangeManager(), ArraySize(logStorageResources),
                                                           gCircularEventBuffer, logStorageResources, &ctx->mEventCounter);
 
         return SUCCESS;
@@ -114,12 +115,8 @@ void ENFORCE_FORMAT(1, 2) SimpleDumpWriter(const char * aFormat, ...)
 void PrintEventLog()
 {
     chip::TLV::TLVReader reader;
-    size_t elementCount;
     chip::app::CircularEventBufferWrapper bufWrapper;
-    chip::app::EventManagement::GetInstance().GetEventReader(reader, chip::app::PriorityLevel::Debug, &bufWrapper);
-
-    chip::TLV::Utilities::Count(reader, elementCount, false);
-    printf("Found %u elements\n", static_cast<unsigned int>(elementCount));
+    chip::app::EventManagement::GetInstance().GetEventReader(reader, chip::app::PriorityLevel::Critical, &bufWrapper);
     chip::TLV::Debug::Dump(reader, SimpleDumpWriter);
 }
 
@@ -148,13 +145,25 @@ static void CheckLogReadOut(nlTestSuite * apSuite, chip::app::EventManagement & 
     chip::TLV::TLVReader reader;
     chip::TLV::TLVWriter writer;
     size_t eventCount = 0;
-    uint8_t backingStore[1024];
+
+    chip::Platform::ScopedMemoryBuffer<uint8_t> backingStore;
+    VerifyOrDie(backingStore.Alloc(1024));
+
     size_t totalNumElements;
-    writer.Init(backingStore, 1024);
+    writer.Init(backingStore.Get(), 1024);
     err = alogMgmt.FetchEventsSince(writer, clusterInfo, startingEventNumber, eventCount, chip::Access::SubjectDescriptor{});
     NL_TEST_ASSERT(apSuite, err == CHIP_NO_ERROR || err == CHIP_END_OF_TLV);
 
-    reader.Init(backingStore, writer.GetLengthWritten());
+    auto eventTLVSize = writer.GetLengthWritten() / eventCount;
+    // XXX: Make sure that the sizes of our event storages are big enough to hold at least 3 events
+    //      but small enough not to hold 4 events. It is very important to check this because of the
+    //      hard-coded logic of this unit test.
+    //      The size of TLV-encoded event can vary depending on the UTC vs system time controlled by
+    //      the CHIP_DEVICE_CONFIG_EVENT_LOGGING_UTC_TIMESTAMPS, because the relative system time
+    //      will be most likely encoded in 1 byte, while the UTC time will be encoded in 8 bytes.
+    NL_TEST_ASSERT(apSuite, sizeof(gDebugEventBuffer) >= eventTLVSize * 3 && sizeof(gDebugEventBuffer) < eventTLVSize * 4);
+
+    reader.Init(backingStore.Get(), writer.GetLengthWritten());
 
     err = chip::TLV::Utilities::Count(reader, totalNumElements, false);
     NL_TEST_ASSERT(apSuite, err == CHIP_NO_ERROR);
@@ -162,7 +171,7 @@ static void CheckLogReadOut(nlTestSuite * apSuite, chip::app::EventManagement & 
     printf("totalNumElements vs expectedNumEvents vs eventCount : %u vs %u vs %u \n", static_cast<unsigned int>(totalNumElements),
            static_cast<unsigned int>(expectedNumEvents), static_cast<unsigned int>(eventCount));
     NL_TEST_ASSERT(apSuite, totalNumElements == expectedNumEvents && totalNumElements == eventCount);
-    reader.Init(backingStore, writer.GetLengthWritten());
+    reader.Init(backingStore.Get(), writer.GetLengthWritten());
     chip::TLV::Debug::Dump(reader, SimpleDumpWriter);
 }
 
@@ -307,30 +316,25 @@ static void CheckLogEventWithDiscardLowEvent(nlTestSuite * apSuite, void * apCon
     NL_TEST_ASSERT(apSuite, err == CHIP_NO_ERROR);
     CheckLogState(apSuite, logMgmt, 3, chip::app::PriorityLevel::Debug);
 }
-/**
- *   Test Suite. It lists all the test functions.
- */
 
-const nlTest sTests[] = { NL_TEST_DEF("CheckLogEventWithEvictToNextBuffer", CheckLogEventWithEvictToNextBuffer),
-                          NL_TEST_DEF("CheckLogEventWithDiscardLowEvent", CheckLogEventWithDiscardLowEvent), NL_TEST_SENTINEL() };
+const nlTest sTests[] = {
+    NL_TEST_DEF("CheckLogEventWithEvictToNextBuffer", CheckLogEventWithEvictToNextBuffer),
+    NL_TEST_DEF("CheckLogEventWithDiscardLowEvent", CheckLogEventWithDiscardLowEvent),
+    NL_TEST_SENTINEL(),
+};
 
-// clang-format off
-nlTestSuite sSuite =
-{
+nlTestSuite sSuite = {
     "EventLogging",
     &sTests[0],
     TestContext::Initialize,
-    TestContext::Finalize
+    TestContext::Finalize,
 };
-// clang-format on
 
 } // namespace
 
 int TestEventLogging()
 {
-    TestContext gContext;
-    nlTestRunner(&sSuite, &gContext);
-    return (nlTestRunnerStats(&sSuite));
+    return chip::ExecuteTestsWithContext<TestContext>(&sSuite);
 }
 
 CHIP_REGISTER_TEST_SUITE(TestEventLogging)

@@ -40,13 +40,8 @@ class ConfigurationManagerImpl : public Internal::GenericConfigurationManagerImp
 public:
     void InitializeWithObject(jobject managerObject);
     static ConfigurationManagerImpl & GetDefaultInstance();
-    CHIP_ERROR GetProductId(uint16_t & productId) override;
-    CHIP_ERROR GetProductName(char * buf, size_t bufSize) override;
     CHIP_ERROR GetSoftwareVersionString(char * buf, size_t bufSize) override;
     CHIP_ERROR GetSoftwareVersion(uint32_t & softwareVer) override;
-    CHIP_ERROR GetPartNumber(char * buf, size_t bufSize) override;
-    CHIP_ERROR GetProductURL(char * buf, size_t bufSize) override;
-    CHIP_ERROR GetProductLabel(char * buf, size_t bufSize) override;
     CHIP_ERROR GetUniqueId(char * buf, size_t bufSize) override;
 
 private:
@@ -84,6 +79,14 @@ private:
 
     jobject mConfigurationManagerObject = nullptr;
 };
+
+/**
+ * Returns the platform-specific implementation of the ConfigurationManager object.
+ *
+ * Applications can use this to gain access to features of the ConfigurationManager
+ * that are specific to the selected platform.
+ */
+ConfigurationManager & ConfigurationMgrImpl();
 
 } // namespace DeviceLayer
 } // namespace chip

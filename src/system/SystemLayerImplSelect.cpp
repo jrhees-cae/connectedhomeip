@@ -35,6 +35,17 @@
 #define PTHREAD_NULL 0
 #endif // CHIP_SYSTEM_CONFIG_POSIX_LOCKING && !defined(PTHREAD_NULL)
 
+#if CHIP_SYSTEM_CONFIG_USE_LIBEV
+// older libev do not yet have ev_io_modify
+#ifndef ev_io_modify
+#define ev_io_modify(ev, events_)                                                                                                  \
+    do                                                                                                                             \
+    {                                                                                                                              \
+        (ev)->events = ((ev)->events & EV__IOFDSET) | (events_);                                                                   \
+    } while (0)
+#endif // ev_io_modify
+#endif // CHIP_SYSTEM_CONFIG_USE_LIBEV
+
 namespace chip {
 namespace System {
 
@@ -62,9 +73,9 @@ CHIP_ERROR LayerImplSelect::Init()
     return CHIP_NO_ERROR;
 }
 
-CHIP_ERROR LayerImplSelect::Shutdown()
+void LayerImplSelect::Shutdown()
 {
-    VerifyOrReturnError(mLayerState.SetShuttingDown(), CHIP_ERROR_INCORRECT_STATE);
+    VerifyOrReturn(mLayerState.SetShuttingDown());
 
 #if CHIP_SYSTEM_CONFIG_USE_DISPATCH
     TimerList::Node * timer;
@@ -77,15 +88,34 @@ CHIP_ERROR LayerImplSelect::Shutdown()
         }
     }
     mTimerPool.ReleaseAll();
-#else  // CHIP_SYSTEM_CONFIG_USE_DISPATCH
+
+    for (auto & w : mSocketWatchPool)
+    {
+        w.DisableAndClear();
+    }
+#elif CHIP_SYSTEM_CONFIG_USE_LIBEV
+    TimerList::Node * timer;
+    while ((timer = mTimerList.PopEarliest()) != nullptr)
+    {
+        if (ev_is_active(&timer->mLibEvTimer))
+        {
+            ev_timer_stop(mLibEvLoopP, &timer->mLibEvTimer);
+        }
+    }
+    mTimerPool.ReleaseAll();
+
+    for (auto & w : mSocketWatchPool)
+    {
+        w.DisableAndClear();
+    }
+#else
     mTimerList.Clear();
     mTimerPool.ReleaseAll();
-#endif // CHIP_SYSTEM_CONFIG_USE_DISPATCH
+#endif // CHIP_SYSTEM_CONFIG_USE_DISPATCH/LIBEV
 
     mWakeEvent.Close(*this);
 
     mLayerState.ResetFromShuttingDown(); // Return to uninitialized state to permit re-initialization.
-    return CHIP_NO_ERROR;
 }
 
 void LayerImplSelect::Signal()
@@ -117,6 +147,8 @@ void LayerImplSelect::Signal()
 
 CHIP_ERROR LayerImplSelect::StartTimer(Clock::Timeout delay, TimerCompleteCallback onComplete, void * appState)
 {
+    assertChipStackLockedByCurrentThread();
+
     VerifyOrReturnError(mLayerState.IsInitialized(), CHIP_ERROR_INCORRECT_STATE);
 
     CHIP_SYSTEM_FAULT_INJECT(FaultInjection::kFault_TimeoutImmediate, delay = System::Clock::kZero);
@@ -132,10 +164,7 @@ CHIP_ERROR LayerImplSelect::StartTimer(Clock::Timeout delay, TimerCompleteCallba
     {
         (void) mTimerList.Add(timer);
         dispatch_source_t timerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, DISPATCH_TIMER_STRICT, dispatchQueue);
-        if (timerSource == nullptr)
-        {
-            chipDie();
-        }
+        VerifyOrDie(timerSource != nullptr);
 
         timer->mTimerSource = timerSource;
         dispatch_source_set_timer(
@@ -150,21 +179,82 @@ CHIP_ERROR LayerImplSelect::StartTimer(Clock::Timeout delay, TimerCompleteCallba
         dispatch_resume(timerSource);
         return CHIP_NO_ERROR;
     }
-#endif // CHIP_SYSTEM_CONFIG_USE_DISPATCH
-
+#elif CHIP_SYSTEM_CONFIG_USE_LIBEV
+    VerifyOrDie(mLibEvLoopP != nullptr);
+    ev_timer_init(&timer->mLibEvTimer, &LayerImplSelect::HandleLibEvTimer, 1, 0);
+    timer->mLibEvTimer.data = timer;
+    auto t                  = Clock::Milliseconds64(delay).count();
+    ev_timer_set(&timer->mLibEvTimer, static_cast<double>(t) / 1E3, 0.);
+    (void) mTimerList.Add(timer);
+    ev_timer_start(mLibEvLoopP, &timer->mLibEvTimer);
+    return CHIP_NO_ERROR;
+#endif
+#if !CHIP_SYSTEM_CONFIG_USE_LIBEV
+    // Note: dispatch based implementation needs this as fallback, but not LIBEV (and dead code is not allowed with -Werror)
     if (mTimerList.Add(timer) == timer)
     {
         // The new timer is the earliest, so the time until the next event has probably changed.
         Signal();
     }
     return CHIP_NO_ERROR;
+#endif // !CHIP_SYSTEM_CONFIG_USE_LIBEV
+}
+
+CHIP_ERROR LayerImplSelect::ExtendTimerTo(Clock::Timeout delay, TimerCompleteCallback onComplete, void * appState)
+{
+    VerifyOrReturnError(delay.count() > 0, CHIP_ERROR_INVALID_ARGUMENT);
+
+    assertChipStackLockedByCurrentThread();
+
+    Clock::Timeout remainingTime = mTimerList.GetRemainingTime(onComplete, appState);
+    if (remainingTime.count() < delay.count())
+    {
+        if (remainingTime == Clock::kZero)
+        {
+            // If remaining time is Clock::kZero, it might possible that our timer is in
+            // the mExpiredTimers list and about to be fired. Remove it from that list, since we are extending it.
+            mExpiredTimers.Remove(onComplete, appState);
+        }
+        return StartTimer(delay, onComplete, appState);
+    }
+
+    return CHIP_NO_ERROR;
+}
+
+bool LayerImplSelect::IsTimerActive(TimerCompleteCallback onComplete, void * appState)
+{
+    bool timerIsActive = (mTimerList.GetRemainingTime(onComplete, appState) > Clock::kZero);
+
+    if (!timerIsActive)
+    {
+        // check if the timer is in the mExpiredTimers list about to be fired.
+        for (TimerList::Node * timer = mExpiredTimers.Earliest(); timer != nullptr; timer = timer->mNextTimer)
+        {
+            if (timer->GetCallback().GetOnComplete() == onComplete && timer->GetCallback().GetAppState() == appState)
+            {
+                return true;
+            }
+        }
+    }
+
+    return timerIsActive;
 }
 
 void LayerImplSelect::CancelTimer(TimerCompleteCallback onComplete, void * appState)
 {
+    assertChipStackLockedByCurrentThread();
+
     VerifyOrReturn(mLayerState.IsInitialized());
 
     TimerList::Node * timer = mTimerList.Remove(onComplete, appState);
+    if (timer == nullptr)
+    {
+        // The timer was not in our "will fire in the future" list, but it might
+        // be in the "we're about to fire these" chunk we already grabbed from
+        // that list.  Check for it there too, and if found there we still want
+        // to cancel it.
+        timer = mExpiredTimers.Remove(onComplete, appState);
+    }
     VerifyOrReturn(timer != nullptr);
 
 #if CHIP_SYSTEM_CONFIG_USE_DISPATCH
@@ -173,7 +263,10 @@ void LayerImplSelect::CancelTimer(TimerCompleteCallback onComplete, void * appSt
         dispatch_source_cancel(timer->mTimerSource);
         dispatch_release(timer->mTimerSource);
     }
-#endif
+#elif CHIP_SYSTEM_CONFIG_USE_LIBEV
+    VerifyOrDie(mLibEvLoopP != nullptr);
+    ev_timer_stop(mLibEvLoopP, &timer->mLibEvTimer);
+#endif // CHIP_SYSTEM_CONFIG_USE_DISPATCH/LIBEV
 
     mTimerPool.Release(timer);
     Signal();
@@ -181,24 +274,61 @@ void LayerImplSelect::CancelTimer(TimerCompleteCallback onComplete, void * appSt
 
 CHIP_ERROR LayerImplSelect::ScheduleWork(TimerCompleteCallback onComplete, void * appState)
 {
+    assertChipStackLockedByCurrentThread();
+
     VerifyOrReturnError(mLayerState.IsInitialized(), CHIP_ERROR_INCORRECT_STATE);
-
-    CancelTimer(onComplete, appState);
-
-    TimerList::Node * timer = mTimerPool.Create(*this, SystemClock().GetMonotonicTimestamp(), onComplete, appState);
-    VerifyOrReturnError(timer != nullptr, CHIP_ERROR_NO_MEMORY);
 
 #if CHIP_SYSTEM_CONFIG_USE_DISPATCH
     dispatch_queue_t dispatchQueue = GetDispatchQueue();
     if (dispatchQueue)
     {
-        (void) mTimerList.Add(timer);
         dispatch_async(dispatchQueue, ^{
-            this->HandleTimerComplete(timer);
+            onComplete(this, appState);
         });
         return CHIP_NO_ERROR;
     }
-#endif // CHIP_SYSTEM_CONFIG_USE_DISPATCH
+#elif CHIP_SYSTEM_CONFIG_USE_LIBEV
+    // schedule as timer with no delay, but do NOT cancel previous timers with same onComplete/appState!
+    TimerList::Node * timer = mTimerPool.Create(*this, SystemClock().GetMonotonicTimestamp(), onComplete, appState);
+    VerifyOrReturnError(timer != nullptr, CHIP_ERROR_NO_MEMORY);
+    VerifyOrDie(mLibEvLoopP != nullptr);
+    ev_timer_init(&timer->mLibEvTimer, &LayerImplSelect::HandleLibEvTimer, 1, 0);
+    timer->mLibEvTimer.data = timer;
+    auto t                  = Clock::Milliseconds64(0).count();
+    ev_timer_set(&timer->mLibEvTimer, static_cast<double>(t) / 1E3, 0.);
+    (void) mTimerList.Add(timer);
+    ev_timer_start(mLibEvLoopP, &timer->mLibEvTimer);
+    return CHIP_NO_ERROR;
+#endif // CHIP_SYSTEM_CONFIG_USE_DISPATCH/LIBEV
+#if !CHIP_SYSTEM_CONFIG_USE_LIBEV
+    // Note: dispatch based implementation needs this as fallback, but not LIBEV (and dead code is not allowed with -Werror)
+    // Ideally we would not use a timer here at all, but if we try to just
+    // ScheduleLambda the lambda needs to capture the following:
+    // 1) onComplete
+    // 2) appState
+    // 3) The `this` pointer, because onComplete needs to be passed a pointer to
+    //    the System::Layer.
+    //
+    // On a 64-bit system that's 24 bytes, but lambdas passed to ScheduleLambda
+    // are capped at CHIP_CONFIG_LAMBDA_EVENT_SIZE which is 16 bytes.
+    //
+    // So for now use a timer as a poor-man's closure that captures `this` and
+    // onComplete and appState in a single pointer, so we fit inside the size
+    // limit.
+    //
+    // TODO: We could do something here where we compile-time condition on the
+    // sizes of things and use a direct ScheduleLambda if it would fit and this
+    // setup otherwise.
+    //
+    // TODO: But also, unit tests seem to do SystemLayer::ScheduleWork without
+    // actually running a useful event loop (in the PlatformManager sense),
+    // which breaks if we use ScheduleLambda here, since that does rely on the
+    // PlatformManager event loop. So for now, keep scheduling an expires-ASAP
+    // timer, but just make sure we don't cancel existing timers with the same
+    // callback and appState, so ScheduleWork invocations don't stomp on each
+    // other.
+    TimerList::Node * timer = mTimerPool.Create(*this, SystemClock().GetMonotonicTimestamp(), onComplete, appState);
+    VerifyOrReturnError(timer != nullptr, CHIP_ERROR_NO_MEMORY);
 
     if (mTimerList.Add(timer) == timer)
     {
@@ -206,6 +336,7 @@ CHIP_ERROR LayerImplSelect::ScheduleWork(TimerCompleteCallback onComplete, void 
         Signal();
     }
     return CHIP_NO_ERROR;
+#endif // !CHIP_SYSTEM_CONFIG_USE_LIBEV
 }
 
 CHIP_ERROR LayerImplSelect::StartWatchingSocket(int fd, SocketWatchToken * tokenOut)
@@ -227,6 +358,11 @@ CHIP_ERROR LayerImplSelect::StartWatchingSocket(int fd, SocketWatchToken * token
     VerifyOrReturnError(watch != nullptr, CHIP_ERROR_ENDPOINT_POOL_FULL);
 
     watch->mFD = fd;
+#if CHIP_SYSTEM_CONFIG_USE_LIBEV
+    ev_io_init(&watch->mIoWatcher, &LayerImplSelect::HandleLibEvIoWatcher, 0, 0);
+    watch->mIoWatcher.data   = watch;
+    watch->mLayerImplSelectP = this;
+#endif
 
     *tokenOut = reinterpret_cast<SocketWatchToken>(watch);
     return CHIP_NO_ERROR;
@@ -248,6 +384,57 @@ CHIP_ERROR LayerImplSelect::RequestCallbackOnPendingRead(SocketWatchToken token)
     VerifyOrReturnError(watch != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
 
     watch->mPendingIO.Set(SocketEventFlags::kRead);
+
+#if CHIP_SYSTEM_CONFIG_USE_DISPATCH
+    if (watch->mRdSource == nullptr)
+    {
+        // First time requesting callback for read events: install a dispatch source
+        dispatch_queue_t dispatchQueue = GetDispatchQueue();
+        if (dispatchQueue == nullptr)
+        {
+            // Note: if no dispatch queue is available, callbacks most probably will not work,
+            //       unless, as in some tests from a test-specific local loop,
+            //       the select based event handling (Prepare/WaitFor/HandleEvents) is invoked.
+            ChipLogError(DeviceLayer,
+                         "RequestCallbackOnPendingRead with no dispatch queue: callback may not work (might be ok in tests)");
+        }
+        else
+        {
+            watch->mRdSource =
+                dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, static_cast<uintptr_t>(watch->mFD), 0, dispatchQueue);
+            ReturnErrorCodeIf(watch->mRdSource == nullptr, CHIP_ERROR_NO_MEMORY);
+            dispatch_source_set_event_handler(watch->mRdSource, ^{
+                if (watch->mPendingIO.Has(SocketEventFlags::kRead) && watch->mCallback != nullptr)
+                {
+                    SocketEvents events;
+                    events.Set(SocketEventFlags::kRead);
+                    watch->mCallback(events, watch->mCallbackData);
+                }
+            });
+            // only now we are sure the source exists and can become active
+            dispatch_activate(watch->mRdSource);
+        }
+    }
+#elif CHIP_SYSTEM_CONFIG_USE_LIBEV
+    VerifyOrDie(mLibEvLoopP != nullptr);
+    int evs = (watch->mPendingIO.Has(SocketEventFlags::kRead) ? EV_READ : 0) |
+        (watch->mPendingIO.Has(SocketEventFlags::kWrite) ? EV_WRITE : 0);
+    if (!ev_is_active(&watch->mIoWatcher))
+    {
+        // First time actually using that watch
+        ev_io_set(&watch->mIoWatcher, watch->mFD, evs);
+        ev_io_start(mLibEvLoopP, &watch->mIoWatcher);
+    }
+    else
+    {
+        // already active, just change flags
+        // Note: changing flags only reliably works when the watcher is stopped
+        ev_io_stop(mLibEvLoopP, &watch->mIoWatcher);
+        ev_io_modify(&watch->mIoWatcher, evs);
+        ev_io_start(mLibEvLoopP, &watch->mIoWatcher);
+    }
+#endif // CHIP_SYSTEM_CONFIG_USE_DISPATCH
+
     return CHIP_NO_ERROR;
 }
 
@@ -257,6 +444,57 @@ CHIP_ERROR LayerImplSelect::RequestCallbackOnPendingWrite(SocketWatchToken token
     VerifyOrReturnError(watch != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
 
     watch->mPendingIO.Set(SocketEventFlags::kWrite);
+
+#if CHIP_SYSTEM_CONFIG_USE_DISPATCH
+    if (watch->mWrSource == nullptr)
+    {
+        // First time requesting callback for read events: install a dispatch source
+        dispatch_queue_t dispatchQueue = GetDispatchQueue();
+        if (dispatchQueue == nullptr)
+        {
+            // Note: if no dispatch queue is available, callbacks most probably will not work,
+            //       unless, as in some tests from a test-specific local loop,
+            //       the select based event handling (Prepare/WaitFor/HandleEvents) is invoked.
+            ChipLogError(DeviceLayer,
+                         "RequestCallbackOnPendingWrite with no dispatch queue: callback may not work (might be ok in tests)");
+        }
+        else
+        {
+            watch->mWrSource =
+                dispatch_source_create(DISPATCH_SOURCE_TYPE_WRITE, static_cast<uintptr_t>(watch->mFD), 0, dispatchQueue);
+            ReturnErrorCodeIf(watch->mWrSource == nullptr, CHIP_ERROR_NO_MEMORY);
+            dispatch_source_set_event_handler(watch->mWrSource, ^{
+                if (watch->mPendingIO.Has(SocketEventFlags::kWrite) && watch->mCallback != nullptr)
+                {
+                    SocketEvents events;
+                    events.Set(SocketEventFlags::kWrite);
+                    watch->mCallback(events, watch->mCallbackData);
+                }
+            });
+            // only now we are sure the source exists and can become active
+            dispatch_activate(watch->mWrSource);
+        }
+    }
+#elif CHIP_SYSTEM_CONFIG_USE_LIBEV
+    VerifyOrDie(mLibEvLoopP != nullptr);
+    int evs = (watch->mPendingIO.Has(SocketEventFlags::kRead) ? EV_READ : 0) |
+        (watch->mPendingIO.Has(SocketEventFlags::kWrite) ? EV_WRITE : 0);
+    if (!ev_is_active(&watch->mIoWatcher))
+    {
+        // First time actually using that watch
+        ev_io_set(&watch->mIoWatcher, watch->mFD, evs);
+        ev_io_start(mLibEvLoopP, &watch->mIoWatcher);
+    }
+    else
+    {
+        // already active, just change flags
+        // Note: changing flags only reliably works when the watcher is stopped
+        ev_io_stop(mLibEvLoopP, &watch->mIoWatcher);
+        ev_io_modify(&watch->mIoWatcher, evs);
+        ev_io_start(mLibEvLoopP, &watch->mIoWatcher);
+    }
+#endif // CHIP_SYSTEM_CONFIG_USE_DISPATCH
+
     return CHIP_NO_ERROR;
 }
 
@@ -264,7 +502,17 @@ CHIP_ERROR LayerImplSelect::ClearCallbackOnPendingRead(SocketWatchToken token)
 {
     SocketWatch * watch = reinterpret_cast<SocketWatch *>(token);
     VerifyOrReturnError(watch != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
+
     watch->mPendingIO.Clear(SocketEventFlags::kRead);
+
+#if CHIP_SYSTEM_CONFIG_USE_LIBEV
+    if (ev_is_active(&watch->mIoWatcher) && watch->mPendingIO.Raw() == 0)
+    {
+        // all flags cleared now, stop watching
+        ev_io_stop(mLibEvLoopP, &watch->mIoWatcher);
+    }
+#endif
+
     return CHIP_NO_ERROR;
 }
 
@@ -272,7 +520,17 @@ CHIP_ERROR LayerImplSelect::ClearCallbackOnPendingWrite(SocketWatchToken token)
 {
     SocketWatch * watch = reinterpret_cast<SocketWatch *>(token);
     VerifyOrReturnError(watch != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
+
     watch->mPendingIO.Clear(SocketEventFlags::kWrite);
+
+#if CHIP_SYSTEM_CONFIG_USE_LIBEV
+    if (ev_is_active(&watch->mIoWatcher) && watch->mPendingIO.Raw() == 0)
+    {
+        // all flags cleared now, stop watching
+        ev_io_stop(mLibEvLoopP, &watch->mIoWatcher);
+    }
+#endif
+
     return CHIP_NO_ERROR;
 }
 
@@ -284,10 +542,14 @@ CHIP_ERROR LayerImplSelect::StopWatchingSocket(SocketWatchToken * tokenInOut)
     VerifyOrReturnError(watch != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
     VerifyOrReturnError(watch->mFD >= 0, CHIP_ERROR_INCORRECT_STATE);
 
+#if CHIP_SYSTEM_CONFIG_USE_DISPATCH || CHIP_SYSTEM_CONFIG_USE_LIBEV
+    watch->DisableAndClear();
+#else
     watch->Clear();
 
     // Wake the thread calling select so that it stops selecting on the socket.
     Signal();
+#endif
 
     return CHIP_NO_ERROR;
 }
@@ -380,7 +642,7 @@ void LayerImplSelect::HandleEvents()
 
     if (!IsSelectResultValid())
     {
-        ChipLogError(DeviceLayer, "select failed: %s\n", ErrorStr(CHIP_ERROR_POSIX(errno)));
+        ChipLogError(DeviceLayer, "Select failed: %" CHIP_ERROR_FORMAT, CHIP_ERROR_POSIX(errno).Format());
         return;
     }
 
@@ -390,9 +652,10 @@ void LayerImplSelect::HandleEvents()
 
     // Obtain the list of currently expired timers. Any new timers added by timer callback are NOT handled on this pass,
     // since that could result in infinite handling of new timers blocking any other progress.
-    TimerList expiredTimers = mTimerList.ExtractEarlier(Clock::Timeout(1) + SystemClock().GetMonotonicTimestamp());
+    VerifyOrDieWithMsg(mExpiredTimers.Empty(), DeviceLayer, "Re-entry into HandleEvents from a timer callback?");
+    mExpiredTimers          = mTimerList.ExtractEarlier(Clock::Timeout(1) + SystemClock().GetMonotonicTimestamp());
     TimerList::Node * timer = nullptr;
-    while ((timer = expiredTimers.PopEarliest()) != nullptr)
+    while ((timer = mExpiredTimers.PopEarliest()) != nullptr)
     {
         mTimerPool.Invoke(timer);
     }
@@ -415,12 +678,47 @@ void LayerImplSelect::HandleEvents()
 }
 
 #if CHIP_SYSTEM_CONFIG_USE_DISPATCH
+
 void LayerImplSelect::HandleTimerComplete(TimerList::Node * timer)
 {
     mTimerList.Remove(timer);
     mTimerPool.Invoke(timer);
 }
-#endif // CHIP_SYSTEM_CONFIG_USE_DISPATCH
+
+#elif CHIP_SYSTEM_CONFIG_USE_LIBEV
+
+void LayerImplSelect::HandleLibEvTimer(EV_P_ struct ev_timer * t, int revents)
+{
+    TimerList::Node * timer = static_cast<TimerList::Node *>(t->data);
+    VerifyOrDie(timer != nullptr);
+    LayerImplSelect * layerP = dynamic_cast<LayerImplSelect *>(timer->mCallback.mSystemLayer);
+    VerifyOrDie(layerP != nullptr);
+    layerP->mTimerList.Remove(timer);
+    layerP->mTimerPool.Invoke(timer);
+}
+
+void LayerImplSelect::HandleLibEvIoWatcher(EV_P_ struct ev_io * i, int revents)
+{
+    SocketWatch * watch = static_cast<SocketWatch *>(i->data);
+    if (watch != nullptr && watch->mCallback != nullptr && watch->mLayerImplSelectP != nullptr)
+    {
+        SocketEvents events;
+        if (revents & EV_READ)
+        {
+            events.Set(SocketEventFlags::kRead);
+        }
+        if (revents & EV_WRITE)
+        {
+            events.Set(SocketEventFlags::kWrite);
+        }
+        if (events.HasAny())
+        {
+            watch->mCallback(events, watch->mCallbackData);
+        }
+    }
+}
+
+#endif // CHIP_SYSTEM_CONFIG_USE_DISPATCH/LIBEV
 
 void LayerImplSelect::SocketWatch::Clear()
 {
@@ -428,7 +726,39 @@ void LayerImplSelect::SocketWatch::Clear()
     mPendingIO.ClearAll();
     mCallback     = nullptr;
     mCallbackData = 0;
+#if CHIP_SYSTEM_CONFIG_USE_DISPATCH
+    mRdSource = nullptr;
+    mWrSource = nullptr;
+#elif CHIP_SYSTEM_CONFIG_USE_LIBEV
+    mLayerImplSelectP = nullptr;
+#endif
 }
+
+#if CHIP_SYSTEM_CONFIG_USE_DISPATCH
+void LayerImplSelect::SocketWatch::DisableAndClear()
+{
+    if (mRdSource)
+    {
+        dispatch_source_cancel(mRdSource);
+        dispatch_release(mRdSource);
+    }
+    if (mWrSource)
+    {
+        dispatch_source_cancel(mWrSource);
+        dispatch_release(mWrSource);
+    }
+    Clear();
+}
+#elif CHIP_SYSTEM_CONFIG_USE_LIBEV
+void LayerImplSelect::SocketWatch::DisableAndClear()
+{
+    if (mLayerImplSelectP != nullptr && mLayerImplSelectP->mLibEvLoopP != nullptr)
+    {
+        ev_io_stop(mLayerImplSelectP->mLibEvLoopP, &mIoWatcher);
+    }
+    Clear();
+}
+#endif // CHIP_SYSTEM_CONFIG_USE_DISPATCH/LIBEV
 
 } // namespace System
 } // namespace chip

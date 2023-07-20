@@ -1,7 +1,6 @@
 /*
- *
- *    Copyright (c) 2021 Project CHIP Authors
- *    Copyright (c) 2019 Nest Labs, Inc.
+ *    Copyright (c) 2022 Project CHIP Authors
+ *    All rights reserved.
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
  *    you may not use this file except in compliance with the License.
@@ -16,36 +15,21 @@
  *    limitations under the License.
  */
 
-/**
- *    @file
- *          Provides an implementation of the PlatformManager object
- *          for BL602 platforms using the Bouffalolab BL602 SDK.
- */
-/* this file behaves like a config.h, comes first */
 #include <crypto/CHIPCryptoPAL.h>
 #include <platform/internal/CHIPDeviceLayerInternal.h>
 
 #include <platform/PlatformManager.h>
-#include <platform/bouffalolab/BL602/DiagnosticDataProviderImpl.h>
 #include <platform/bouffalolab/BL602/NetworkCommissioningDriver.h>
-#include <platform/internal/GenericPlatformManagerImpl_FreeRTOS.ipp>
 
 #include <lwip/tcpip.h>
 
-#include "AppConfig.h"
-
-#include <aos/kernel.h>
-#include <aos/yloop.h>
 #include <bl_sec.h>
-#include <event_device.h>
+
 #include <hal_wifi.h>
-#include <tcpip.h>
 #include <wifi_mgmr_ext.h>
 
 namespace chip {
 namespace DeviceLayer {
-
-PlatformManagerImpl PlatformManagerImpl::sInstance;
 
 static wifi_conf_t conf = {
     .country_code = "CN",
@@ -53,128 +37,70 @@ static wifi_conf_t conf = {
 
 static int app_entropy_source(void * data, unsigned char * output, size_t len, size_t * olen)
 {
-
     bl_rand_stream(reinterpret_cast<uint8_t *>(output), static_cast<int>(len));
     *olen = len;
 
     return 0;
 }
 
-void event_cb_wifi_event(input_event_t * event, void * private_data)
-{
-    static char * ssid;
-    static char * password;
+typedef void (*aos_event_cb)(input_event_t * event, void * private_data);
 
+void OnWiFiPlatformEvent(input_event_t * event, void * private_data)
+{
     switch (event->code)
     {
     case CODE_WIFI_ON_INIT_DONE: {
         wifi_mgmr_start_background(&conf);
-        log_info("CODE_WIFI_ON_INIT_DONE DONE.\r\n");
     }
     break;
     case CODE_WIFI_ON_MGMR_DONE: {
-        log_info("[APP] [EVT] MGMR DONE %lld\r\n", aos_now_ms());
-    }
-    break;
-    case CODE_WIFI_ON_SCAN_DONE: {
-        log_info("[APP] [EVT] SCAN Done %lld, SCAN Result: %s\r\n", aos_now_ms(),
-                 WIFI_SCAN_DONE_EVENT_OK == event->value ? "OK" : "Busy now");
-
-        // wifi_mgmr_cli_scanlist();
-        NetworkCommissioning::BLWiFiDriver::GetInstance().OnScanWiFiNetworkDone();
-    }
-    break;
-    case CODE_WIFI_ON_CONNECTING: {
-        log_info("[APP] [EVT] Connecting %lld\r\n", aos_now_ms());
-        ConnectivityManagerImpl::mWiFiStationState = ConnectivityManager::kWiFiStationState_Connecting;
-    }
-    break;
-    case CODE_WIFI_CMD_RECONNECT: {
-        log_info("[APP] [EVT] Reconnect %lld\r\n", aos_now_ms());
     }
     break;
     case CODE_WIFI_ON_CONNECTED: {
-        log_info("[APP] [EVT] connected %lld\r\n", aos_now_ms());
-        ConnectivityManagerImpl::mWiFiStationState = ConnectivityManager::kWiFiStationState_Connecting_Succeeded;
+        ChipLogProgress(DeviceLayer, "WiFi station connected.");
     }
     break;
-    case CODE_WIFI_ON_PRE_GOT_IP: {
-        log_info("[APP] [EVT] connected %lld\r\n", aos_now_ms());
+    case CODE_WIFI_ON_SCAN_DONE: {
+        chip::DeviceLayer::PlatformMgr().LockChipStack();
+        NetworkCommissioning::BLWiFiDriver::GetInstance().OnScanWiFiNetworkDone();
+        chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+    }
+    break;
+    case CODE_WIFI_ON_CONNECTING: {
+        ChipLogProgress(DeviceLayer, "WiFi station starts connecting.");
+    }
+    break;
+    case CODE_WIFI_ON_DISCONNECT: {
+        ChipLogProgress(DeviceLayer, "WiFi station disconnect, reason %s.", wifi_mgmr_status_code_str(event->value));
+        chip::DeviceLayer::PlatformMgr().LockChipStack();
+        if (ConnectivityManager::kWiFiStationState_Connecting == ConnectivityMgrImpl().GetWiFiStationState())
+        {
+            ConnectivityMgrImpl().ChangeWiFiStationState(ConnectivityManager::kWiFiStationState_Connecting_Failed);
+        }
+        chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+    }
+    break;
+    case CODE_WIFI_CMD_RECONNECT: {
+        ChipLogProgress(DeviceLayer, "WiFi station reconnect.");
     }
     break;
     case CODE_WIFI_ON_GOT_IP: {
-        log_info("[APP] [EVT] GOT IP %lld\r\n", aos_now_ms());
-        log_info("[SYS] Memory left is %d Bytes\r\n", xPortGetFreeHeapSize());
-
-        ConnectivityManagerImpl::mWiFiStationState = ConnectivityManager::kWiFiStationState_Connected;
-        ConnectivityMgrImpl().WifiStationStateChange();
-        ConnectivityMgrImpl().OnStationConnected();
+        ChipLogProgress(DeviceLayer, "WiFi station gets IPv4 address.");
+        chip::DeviceLayer::PlatformMgr().LockChipStack();
+        ConnectivityMgrImpl().ChangeWiFiStationState(ConnectivityManagerImpl::kWiFiStationState_Connected);
+        ConnectivityMgrImpl().OnConnectivityChanged(wifi_mgmr_sta_netif_get());
+        chip::DeviceLayer::PlatformMgr().UnlockChipStack();
     }
     break;
-    case CODE_WIFI_ON_PROV_SSID: {
-        log_info("[APP] [EVT] [PROV] [SSID] %lld: %s\r\n", aos_now_ms(), event->value ? (const char *) event->value : "UNKNOWN");
-        if (ssid)
-        {
-            vPortFree(ssid);
-            ssid = NULL;
-        }
-        ssid = (char *) event->value;
+    case CODE_WIFI_ON_GOT_IP6: {
+        ChipLogProgress(DeviceLayer, "WiFi station gets IPv6 address.");
+        chip::DeviceLayer::PlatformMgr().LockChipStack();
+        ConnectivityMgrImpl().OnConnectivityChanged(wifi_mgmr_sta_netif_get());
+        chip::DeviceLayer::PlatformMgr().UnlockChipStack();
     }
     break;
-    case CODE_WIFI_ON_PROV_BSSID: {
-        log_info("[APP] [EVT] [PROV] [BSSID] %lld: %s\r\n", aos_now_ms(), event->value ? (const char *) event->value : "UNKNOWN");
-        if (event->value)
-        {
-            vPortFree((void *) event->value);
-        }
-    }
-    break;
-    case CODE_WIFI_ON_PROV_PASSWD: {
-        log_info("[APP] [EVT] [PROV] [PASSWD] %lld: %s\r\n", aos_now_ms(), event->value ? (const char *) event->value : "UNKNOWN");
-        if (password)
-        {
-            vPortFree(password);
-            password = NULL;
-        }
-        password = (char *) event->value;
-    }
-    break;
-    case CODE_WIFI_ON_PROV_CONNECT: {
-        log_info("[APP] [EVT] [PROV] [CONNECT] %lld\r\n", aos_now_ms());
-#if defined(CONFIG_BT_MESH_SYNC)
-        if (event->value)
-        {
-            struct _wifi_conn * conn_info = (struct _wifi_conn *) event->value;
-            break;
-        }
-#endif
-        log_info("connecting to %s:%s...\r\n", ssid, password);
-    }
-    break;
-    case CODE_WIFI_ON_PROV_DISCONNECT: {
-        log_info("[APP] [EVT] [PROV] [DISCONNECT] %lld\r\n", aos_now_ms());
-#if defined(CONFIG_BT_MESH_SYNC)
-        // wifi_mgmr_sta_disconnect();
-        vTaskDelay(1000);
-// wifi_mgmr_sta_disable(NULL);
-#endif
-        ConnectivityManagerImpl::mWiFiStationState = ConnectivityManager::kWiFiStationState_NotConnected;
-    }
-    break;
-#if defined(CONFIG_BT_MESH_SYNC)
-    case CODE_WIFI_ON_PROV_SCAN_START: {
-        log_info("[APP] [EVT] [PROV] [SCAN] %lld\r\n", aos_now_ms());
-        // wifiprov_scan((void *)event->value);
-    }
-    break;
-    case CODE_WIFI_ON_PROV_STATE_GET: {
-        log_info("[APP] [EVT] [PROV] [STATE] %lld\r\n", aos_now_ms());
-        // wifiprov_wifi_state_get((void *)event->value);
-    }
-    break;
-#endif /*CONFIG_BT_MESH_SYNC*/
     default: {
-        log_info("[APP] [EVT] Unknown code %u, %lld\r\n", event->code, aos_now_ms());
+        ChipLogProgress(DeviceLayer, "WiFi station gets unknow code %u.", event->code);
         /*nothing*/
     }
     }
@@ -182,31 +108,14 @@ void event_cb_wifi_event(input_event_t * event, void * private_data)
 
 CHIP_ERROR PlatformManagerImpl::_InitChipStack(void)
 {
-    CHIP_ERROR err;
-
-    SetConfigurationMgr(&ConfigurationManagerImpl::GetDefaultInstance());
-    SetDiagnosticDataProvider(&DiagnosticDataProviderImpl::GetDefaultInstance());
-
-    // Initialize the configuration system.
-    err = Internal::BL602Config::Init();
-    log_error("err: %d\r\n", err);
-    SuccessOrExit(err);
+    CHIP_ERROR err = CHIP_NO_ERROR;
+    TaskHandle_t backup_eventLoopTask;
 
     // Initialize LwIP.
     tcpip_init(NULL, NULL);
-    aos_register_event_filter(EV_WIFI, event_cb_wifi_event, NULL);
-
-    /*wifi fw stack and thread stuff*/
-    static uint8_t stack_wifi_init = 0;
-
-    if (1 == stack_wifi_init)
-    {
-        log_error("Wi-Fi already initialized!\r\n");
-        return;
-    }
+    aos_register_event_filter(EV_WIFI, OnWiFiPlatformEvent, NULL);
 
     hal_wifi_start_firmware_task();
-    stack_wifi_init = 1;
     aos_post_event(EV_WIFI, CODE_WIFI_ON_INIT_DONE, 0);
 
     err = chip::Crypto::add_entropy_source(app_entropy_source, NULL, 16);
@@ -214,8 +123,11 @@ CHIP_ERROR PlatformManagerImpl::_InitChipStack(void)
 
     // Call _InitChipStack() on the generic implementation base class
     // to finish the initialization process.
-    err = Internal::GenericPlatformManagerImpl_FreeRTOS<PlatformManagerImpl>::_InitChipStack();
+    /** weiyin, backup mEventLoopTask which is reset in _InitChipStack */
+    backup_eventLoopTask = Internal::GenericPlatformManagerImpl_FreeRTOS<PlatformManagerImpl>::mEventLoopTask;
+    err                  = Internal::GenericPlatformManagerImpl_FreeRTOS<PlatformManagerImpl>::_InitChipStack();
     SuccessOrExit(err);
+    Internal::GenericPlatformManagerImpl_FreeRTOS<PlatformManagerImpl>::mEventLoopTask = backup_eventLoopTask;
 
 exit:
     return err;

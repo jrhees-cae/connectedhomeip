@@ -29,6 +29,7 @@
 
 #include <lib/support/CodeUtils.h>
 #include <lib/support/ErrorStr.h>
+#include <lib/support/UnitTestContext.h>
 #include <lib/support/UnitTestRegistration.h>
 #include <nlunit-test.h>
 #include <system/SystemError.h>
@@ -181,14 +182,9 @@ static const nlTest sTests[] =
 
 static nlTestSuite kTheSuite = { "chip-system-wake-event", sTests };
 
-int TestSystemWakeEvent(void)
+int TestSystemWakeEvent()
 {
-    TestContext context;
-
-    // Run test suit againt one lContext.
-    nlTestRunner(&kTheSuite, &context);
-
-    return nlTestRunnerStats(&kTheSuite);
+    return chip::ExecuteTestsWithContext<TestContext>(&kTheSuite);
 }
 
 CHIP_REGISTER_TEST_SUITE(TestSystemWakeEvent)

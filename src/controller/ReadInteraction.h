@@ -27,6 +27,8 @@ namespace chip {
 namespace Controller {
 namespace detail {
 
+using SubscriptionOnDoneCallback = std::function<void(void)>;
+
 template <typename DecodableAttributeType>
 struct ReportAttributeParams : public app::ReadPrepareParams
 {
@@ -37,7 +39,10 @@ struct ReportAttributeParams : public app::ReadPrepareParams
     typename TypedReadAttributeCallback<DecodableAttributeType>::OnSuccessCallbackType mOnReportCb;
     typename TypedReadAttributeCallback<DecodableAttributeType>::OnErrorCallbackType mOnErrorCb;
     typename TypedReadAttributeCallback<DecodableAttributeType>::OnSubscriptionEstablishedCallbackType
-        mOnSubscriptionEstablishedCb             = nullptr;
+        mOnSubscriptionEstablishedCb = nullptr;
+    typename TypedReadAttributeCallback<DecodableAttributeType>::OnResubscriptionAttemptCallbackType mOnResubscriptionAttemptCb =
+        nullptr;
+    SubscriptionOnDoneCallback mOnDoneCb         = nullptr;
     app::ReadClient::InteractionType mReportType = app::ReadClient::InteractionType::Read;
 };
 
@@ -61,10 +66,18 @@ CHIP_ERROR ReportAttribute(Messaging::ExchangeManager * exchangeMgr, EndpointId 
         readParams.mpDataVersionFilterList    = dataVersionFilters.get();
         readParams.mDataVersionFilterListSize = 1;
     }
-    auto onDone = [](TypedReadAttributeCallback<DecodableAttributeType> * callback) { chip::Platform::Delete(callback); };
+    auto onDoneCb = readParams.mOnDoneCb;
+    auto onDone   = [onDoneCb](TypedReadAttributeCallback<DecodableAttributeType> * callback) {
+        if (onDoneCb)
+        {
+            onDoneCb();
+        }
+        chip::Platform::Delete(callback);
+    };
 
     auto callback = chip::Platform::MakeUnique<TypedReadAttributeCallback<DecodableAttributeType>>(
-        clusterId, attributeId, readParams.mOnReportCb, readParams.mOnErrorCb, onDone, readParams.mOnSubscriptionEstablishedCb);
+        clusterId, attributeId, readParams.mOnReportCb, readParams.mOnErrorCb, onDone, readParams.mOnSubscriptionEstablishedCb,
+        readParams.mOnResubscriptionAttemptCb);
     VerifyOrReturnError(callback != nullptr, CHIP_ERROR_NO_MEMORY);
 
     auto readClient =
@@ -146,12 +159,17 @@ CHIP_ERROR SubscribeAttribute(
     uint16_t maxIntervalCeilingSeconds,
     typename TypedReadAttributeCallback<DecodableAttributeType>::OnSubscriptionEstablishedCallbackType onSubscriptionEstablishedCb =
         nullptr,
-    bool fabricFiltered = true, bool keepPreviousSubscriptions = false, const Optional<DataVersion> & aDataVersion = NullOptional)
+    typename TypedReadAttributeCallback<DecodableAttributeType>::OnResubscriptionAttemptCallbackType onResubscriptionAttemptCb =
+        nullptr,
+    bool fabricFiltered = true, bool keepPreviousSubscriptions = false, const Optional<DataVersion> & aDataVersion = NullOptional,
+    typename detail::SubscriptionOnDoneCallback onDoneCb = nullptr)
 {
     detail::ReportAttributeParams<DecodableAttributeType> params(sessionHandle);
     params.mOnReportCb                  = onReportCb;
     params.mOnErrorCb                   = onErrorCb;
     params.mOnSubscriptionEstablishedCb = onSubscriptionEstablishedCb;
+    params.mOnResubscriptionAttemptCb   = onResubscriptionAttemptCb;
+    params.mOnDoneCb                    = onDoneCb;
     params.mMinIntervalFloorSeconds     = minIntervalFloorSeconds;
     params.mMaxIntervalCeilingSeconds   = maxIntervalCeilingSeconds;
     params.mKeepSubscriptions           = keepPreviousSubscriptions;
@@ -177,12 +195,15 @@ CHIP_ERROR SubscribeAttribute(
     uint16_t aMinIntervalFloorSeconds, uint16_t aMaxIntervalCeilingSeconds,
     typename TypedReadAttributeCallback<typename AttributeTypeInfo::DecodableType>::OnSubscriptionEstablishedCallbackType
         onSubscriptionEstablishedCb = nullptr,
-    bool fabricFiltered = true, bool keepPreviousSubscriptions = false, const Optional<DataVersion> & aDataVersion = NullOptional)
+    typename TypedReadAttributeCallback<typename AttributeTypeInfo::DecodableType>::OnResubscriptionAttemptCallbackType
+        onResubscriptionAttemptCb = nullptr,
+    bool fabricFiltered = true, bool keepPreviousSubscriptions = false, const Optional<DataVersion> & aDataVersion = NullOptional,
+    typename detail::SubscriptionOnDoneCallback onDoneCb = nullptr)
 {
     return SubscribeAttribute<typename AttributeTypeInfo::DecodableType>(
         exchangeMgr, sessionHandle, endpointId, AttributeTypeInfo::GetClusterId(), AttributeTypeInfo::GetAttributeId(), onReportCb,
-        onErrorCb, aMinIntervalFloorSeconds, aMaxIntervalCeilingSeconds, onSubscriptionEstablishedCb, fabricFiltered,
-        keepPreviousSubscriptions, aDataVersion);
+        onErrorCb, aMinIntervalFloorSeconds, aMaxIntervalCeilingSeconds, onSubscriptionEstablishedCb, onResubscriptionAttemptCb,
+        fabricFiltered, keepPreviousSubscriptions, aDataVersion, onDoneCb);
 }
 
 namespace detail {
@@ -196,6 +217,7 @@ struct ReportEventParams : public app::ReadPrepareParams
     typename TypedReadEventCallback<DecodableEventType>::OnDoneCallbackType mOnDoneCb;
     typename TypedReadEventCallback<DecodableEventType>::OnSubscriptionEstablishedCallbackType mOnSubscriptionEstablishedCb =
         nullptr;
+    typename TypedReadEventCallback<DecodableEventType>::OnResubscriptionAttemptCallbackType mOnResubscriptionAttemptCb = nullptr;
     app::ReadClient::InteractionType mReportType = app::ReadClient::InteractionType::Read;
 };
 
@@ -216,7 +238,8 @@ CHIP_ERROR ReportEvent(Messaging::ExchangeManager * apExchangeMgr, EndpointId en
     readParams.mEventPathParamsListSize = 1;
 
     auto callback = chip::Platform::MakeUnique<TypedReadEventCallback<DecodableEventType>>(
-        readParams.mOnReportCb, readParams.mOnErrorCb, readParams.mOnDoneCb, readParams.mOnSubscriptionEstablishedCb);
+        readParams.mOnReportCb, readParams.mOnErrorCb, readParams.mOnDoneCb, readParams.mOnSubscriptionEstablishedCb,
+        readParams.mOnResubscriptionAttemptCb);
 
     VerifyOrReturnError(callback != nullptr, CHIP_ERROR_NO_MEMORY);
 
@@ -280,19 +303,22 @@ CHIP_ERROR ReadEvent(Messaging::ExchangeManager * exchangeMgr, const SessionHand
  * similarly to ReadEvent but keeps reporting events as they are emitted.
  */
 template <typename DecodableEventType>
-CHIP_ERROR SubscribeEvent(Messaging::ExchangeManager * exchangeMgr, const SessionHandle & sessionHandle, EndpointId endpointId,
-                          typename TypedReadEventCallback<DecodableEventType>::OnSuccessCallbackType onReportCb,
-                          typename TypedReadEventCallback<DecodableEventType>::OnErrorCallbackType onErrorCb,
-                          uint16_t minIntervalFloorSeconds, uint16_t maxIntervalCeilingSeconds,
-                          typename TypedReadEventCallback<DecodableEventType>::OnSubscriptionEstablishedCallbackType
-                              onSubscriptionEstablishedCb = nullptr,
-                          bool keepPreviousSubscriptions = false, bool aIsUrgentEvent = false)
+CHIP_ERROR SubscribeEvent(
+    Messaging::ExchangeManager * exchangeMgr, const SessionHandle & sessionHandle, EndpointId endpointId,
+    typename TypedReadEventCallback<DecodableEventType>::OnSuccessCallbackType onReportCb,
+    typename TypedReadEventCallback<DecodableEventType>::OnErrorCallbackType onErrorCb, uint16_t minIntervalFloorSeconds,
+    uint16_t maxIntervalCeilingSeconds,
+    typename TypedReadEventCallback<DecodableEventType>::OnSubscriptionEstablishedCallbackType onSubscriptionEstablishedCb =
+        nullptr,
+    typename TypedReadEventCallback<DecodableEventType>::OnResubscriptionAttemptCallbackType onResubscriptionAttemptCb = nullptr,
+    bool keepPreviousSubscriptions = false, bool aIsUrgentEvent = false)
 {
     detail::ReportEventParams<DecodableEventType> params(sessionHandle);
     params.mOnReportCb                  = onReportCb;
     params.mOnErrorCb                   = onErrorCb;
     params.mOnDoneCb                    = nullptr;
     params.mOnSubscriptionEstablishedCb = onSubscriptionEstablishedCb;
+    params.mOnResubscriptionAttemptCb   = onResubscriptionAttemptCb;
     params.mMinIntervalFloorSeconds     = minIntervalFloorSeconds;
     params.mMaxIntervalCeilingSeconds   = maxIntervalCeilingSeconds;
     params.mKeepSubscriptions           = keepPreviousSubscriptions;

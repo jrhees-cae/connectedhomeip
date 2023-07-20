@@ -67,9 +67,10 @@ static nlTestSuite kTheSuite =
  */
 static int TestSetup(void * aContext)
 {
+    if (chip::Platform::MemoryInit() != CHIP_NO_ERROR)
+        return FAILURE;
     if (chip::DeviceLayer::PlatformMgr().InitChipStack() != CHIP_NO_ERROR)
         return FAILURE;
-
     return (SUCCESS);
 }
 
@@ -79,15 +80,12 @@ static int TestSetup(void * aContext)
  */
 static int TestTeardown(void * aContext)
 {
-    CHIP_ERROR err = chip::DeviceLayer::PlatformMgr().Shutdown();
-    // RTOS shutdown is not implemented, ignore CHIP_ERROR_NOT_IMPLEMENTED
-    if (err != CHIP_NO_ERROR && err != CHIP_ERROR_NOT_IMPLEMENTED)
-        return FAILURE;
-
+    chip::DeviceLayer::PlatformMgr().Shutdown();
+    chip::Platform::MemoryShutdown();
     return (SUCCESS);
 }
 
-int TestSystemScheduleLambda(void)
+int TestSystemScheduleLambda()
 {
     // Run test suit againt one lContext.
     nlTestRunner(&kTheSuite, nullptr);

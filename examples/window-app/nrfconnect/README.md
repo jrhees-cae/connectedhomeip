@@ -5,10 +5,8 @@ window shutter device. It uses buttons to test changing cover position and
 device states and LEDs to show the state of these changes. You can use this
 example as a reference for creating your own application.
 
-<p align="center">
-  <img src="../../platform/nrfconnect/doc/images/Logo_RGB_H-small.png" alt="Nordic Semiconductor logo"/>
-  <img src="../../platform/nrfconnect/doc/images/nRF52840-DK-small.png" alt="nRF52840 DK">
-</p>
+<img src="../../platform/nrfconnect/doc/images/Logo_RGB_H-small.png" alt="Nordic Semiconductor logo"/>
+<img src="../../platform/nrfconnect/doc/images/nRF52840-DK-small.png" alt="nRF52840 DK">
 
 The example is based on
 [Matter](https://github.com/project-chip/connectedhomeip) and Nordic
@@ -20,32 +18,6 @@ into an existing Matter network and can be controlled by this network.
 
 <hr>
 
--   [Overview](#overview)
-    -   [Bluetooth LE advertising](#bluetooth-le-advertising)
-    -   [Bluetooth LE rendezvous](#bluetooth-le-rendezvous)
-    -   [Device Firmware Upgrade](#device-firmware-upgrade)
--   [Requirements](#requirements)
-    -   [Supported devices](#supported_devices)
--   [Device UI](#device-ui)
--   [Setting up the environment](#setting-up-the-environment)
-    -   [Using Docker container for setup](#using-docker-container-for-setup)
-    -   [Using native shell for setup](#using-native-shell-for-setup)
--   [Building](#building)
-    -   [Removing build artifacts](#removing-build-artifacts)
-    -   [Building with release configuration](#building-with-release-configuration)
-    -   [Building with low-power configuration](#building-with-low-power-configuration)
-    -   [Building with Device Firmware Upgrade support](#building-with-device-firmware-upgrade-support)
--   [Configuring the example](#configuring-the-example)
-    -   [Example build types](#example-build-types)
--   [Flashing and debugging](#flashing-and-debugging)
--   [Testing the example](#testing-the-example)
-    -   [Testing using CHIPTool](#testing-using-chiptool)
-    -   [Testing Device Firmware Upgrade](#testing-device-firmware-upgrade)
-
-<hr>
-
-<a name="overview"></a>
-
 ## Overview
 
 This example is running on the nRF Connect platform, which is based on Nordic
@@ -56,13 +28,18 @@ and [Zephyr RTOS](https://zephyrproject.org/). Visit Matter's
 to read more about the platform structure and dependencies.
 
 The Matter device that runs the window shutter application is controlled by the
-Matter controller device over the Thread protocol. By default, the Matter device
-has Thread disabled, and it should be paired with Matter controller and get
-configuration from it. Some actions required before establishing full
-communication are described below.
+Matter controller device over the Thread protocol. By default, the Matter
+accessory device has IPv6 networking disabled. You must pair it with the Matter
+controller over Bluetooth® LE to get the configuration from the controller to
+use the device within a Thread or Wi-Fi network. You have to make the device
+discoverable manually (for security reasons). See
+[Bluetooth LE advertising](#bluetooth-le-advertising) to learn how to do this.
+The controller must get the commissioning information from the Matter accessory
+device and provision the device into the network.
 
-The example can be configured to use the secure bootloader and utilize it for
-performing over-the-air Device Firmware Upgrade using Bluetooth LE.
+You can test this application remotely over the Thread or the Wi-Fi protocol,
+which in either case requires more devices, including a Matter controller that
+you can configure either on a PC or a mobile device.
 
 ### Bluetooth LE advertising
 
@@ -111,6 +88,20 @@ requests to start sending the update packages.
 An OTA Requestor is a node that wants to download a new firmware image and sends
 requests to an OTA Provider to start the update process.
 
+#### Simple Management Protocol
+
+Simple Management Protocol (SMP) is a basic transfer encoding that is used for
+device management purposes, including application image management. SMP supports
+using different transports, such as Bluetooth LE, UDP, or serial USB/UART.
+
+In this example, the Matter device runs the SMP Server to download the
+application update image using the Bluetooth LE transport.
+
+See the
+[Building with Device Firmware Upgrade support](#building-with-device-firmware-upgrade-support)
+section to learn how to enable SMP and use it for the DFU purpose in this
+example.
+
 #### Bootloader
 
 MCUboot is a secure bootloader used for swapping firmware images of different
@@ -128,15 +119,11 @@ section to learn how to change MCUboot and flash configuration in this example.
 
 <hr>
 
-<a name="requirements"></a>
-
 ## Requirements
 
 The application requires a specific revision of the nRF Connect SDK to work
 correctly. See [Setting up the environment](#setting-up-the-environment) for
 more information.
-
-<a name="supported_devices"></a>
 
 ### Supported devices
 
@@ -148,8 +135,6 @@ The example supports building and running on the following devices:
 | [nRF5340 DK](https://www.nordicsemi.com/Software-and-Tools/Development-Kits/nRF5340-DK)   | `nrf5340dk_nrf5340_cpuapp` | <details><summary>nRF5340 DK</summary><img src="../../platform/nrfconnect/doc/images/nRF5340_DK_info-medium.jpg" alt="nRF5340 DK"/></details>    |
 
 <hr>
-
-<a name="device-ui"></a>
 
 ## Device UI
 
@@ -169,8 +154,8 @@ following states are possible:
     Bluetooth LE.
 
 -   _Short Flash Off (950ms on/50ms off)_ &mdash; The device is fully
-    provisioned, but does not yet have full Thread network or service
-    connectivity.
+    provisioned, but does not yet have full connectivity for Thread or Wi-Fi
+    network.
 
 -   _Solid On_ &mdash; The device is fully provisioned and has full Thread
     network and service connectivity.
@@ -251,7 +236,7 @@ image that has the tools pre-installed.
 If you are a macOS user, you won't be able to use the Docker container to flash
 the application onto a Nordic development kit due to
 [certain limitations of Docker for macOS](https://docs.docker.com/docker-for-mac/faqs/#can-i-pass-through-a-usb-device-to-a-container).
-Use the [native shell](#using-native-shell) for building instead.
+Use the [native shell](#using-native-shell-for-setup) for building instead.
 
 ### Using Docker container for setup
 
@@ -334,8 +319,6 @@ Now you can proceed with the [Building](#building) instruction.
 
 <hr>
 
-<a name="building"></a>
-
 ## Building
 
 Complete the following steps, regardless of the method used for setting up the
@@ -374,25 +357,17 @@ features like logs and command-line interface, run the following command:
 Remember to replace _build-target_ with the build target name of the Nordic
 Semiconductor's kit you own.
 
-### Building with low-power configuration
-
-You can build the example using the low-power configuration, which enables
-Thread's Synchronized Sleepy End Device mode and disables debug features, such
-as the UART console or the **LED 1** usage.
-
-To build for the low-power configuration, run the following command with
-_build-target_ replaced with the build target name of the Nordic Semiconductor's
-kit you own (for example `nrf52840dk_nrf52840`):
-
-    $ west build -b build-target -- -DOVERLAY_CONFIG=overlay-low_power.conf
-
-For example, use the following command for `nrf52840dk_nrf52840`:
-
-    $ west build -b nrf52840dk_nrf52840 -- -DOVERLAY_CONFIG=overlay-low_power.conf
-
 ### Building with Device Firmware Upgrade support
 
 Support for DFU using Matter OTA is enabled by default.
+
+To enable DFU over Bluetooth LE, run the following command with _build-target_
+replaced with the build target name of the Nordic Semiconductor kit you are
+using (for example `nrf52840dk_nrf52840`):
+
+    ```
+    $ west build -b build-target -- -DCONFIG_CHIP_DFU_OVER_BT_SMP=y
+    ```
 
 To completely disable support for DFU, run the following command with
 _build-target_ replaced with the build target name of the Nordic Semiconductor
@@ -433,8 +408,6 @@ example `nrf52840dk_nrf52840`), edit the `pm_static_dfu.yml` file located in the
 `configuration/build-target/` directory.
 
 <hr>
-
-<a name="configuring"></a>
 
 ## Configuring the example
 
@@ -484,8 +457,6 @@ page.
 
 <hr>
 
-<a name="flashing"></a>
-
 ## Flashing and debugging
 
 To flash the application to the device, use the west tool and run the following
@@ -508,11 +479,17 @@ directory:
 Check the [CLI tutorial](../../../docs/guides/nrfconnect_examples_cli.md) to
 learn how to use command-line interface of the application.
 
-### Testing using CHIPTool
+### Testing using Linux CHIPTool
+
+Read the [CHIP Tool user guide](../../../docs/guides/chip_tool_guide.md) to see
+how to use [CHIP Tool for Linux or mac OS](../../chip-tool/README.md) to
+commission and control the application within a Matter-enabled Thread network.
+
+### Testing using Android CHIPTool
 
 Read the
 [Android commissioning guide](../../../docs/guides/nrfconnect_android_commissioning.md)
-to see how to use [CHIPTool](../../../src/android/CHIPTool/README.md) for
+to see how to use [CHIPTool](../../../examples/android/CHIPTool/README.md) for
 Android smartphones to commission and control the application within a
 Matter-enabled Thread network.
 

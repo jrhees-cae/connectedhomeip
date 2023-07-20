@@ -25,8 +25,8 @@
 
 #include <platform/OpenThread/GenericThreadStackManagerImpl_OpenThread.h>
 
-#include <net/openthread.h>
-#include <zephyr.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net/openthread.h>
 
 #include <openthread/thread.h>
 #if !CONFIG_SOC_SERIES_RISCV_TELINK_B91
@@ -74,7 +74,6 @@ protected:
     // ===== Methods that override the GenericThreadStackManagerImpl_OpenThread abstract interface.
 
     void _ProcessThreadActivity() {}
-    void _OnPlatformEvent(const ChipDeviceEvent * event);
 
     //} // namespace Internal
 
@@ -87,8 +86,6 @@ private:
     static ThreadStackManagerImpl sInstance;
 
     // ===== Private members for use by this class only.
-
-    bool mIsAttached = false;
 };
 
 /**

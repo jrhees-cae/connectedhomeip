@@ -103,8 +103,13 @@ protected:
 #if CHIP_DEVICE_CONFIG_ENABLE_SED
     CHIP_ERROR _GetSEDIntervalsConfig(ConnectivityManager::SEDIntervalsConfig & intervalsConfig);
     CHIP_ERROR _SetSEDIntervalsConfig(const ConnectivityManager::SEDIntervalsConfig & intervalsConfig);
-    CHIP_ERROR _RequestSEDActiveMode(bool onOff);
+    CHIP_ERROR _RequestSEDActiveMode(bool onOff, bool delayIdle);
+    CHIP_ERROR SEDUpdateMode();
+    static void RequestSEDModeUpdate(chip::System::Layer * apSystemLayer, void * apAppState);
 #endif
+#if CHIP_CONFIG_ENABLE_ICD_SERVER
+    CHIP_ERROR _SetPollingInterval(System::Clock::Milliseconds32 pollingInterval);
+#endif // CHIP_CONFIG_ENABLE_ICD_SERVER
 
     bool _HaveMeshConnectivity(void);
     CHIP_ERROR _GetAndLogThreadStatsCounters(void);
@@ -115,6 +120,7 @@ protected:
     void _ResetThreadNetworkDiagnosticsCounts(void);
     CHIP_ERROR _WriteThreadNetworkDiagnosticAttributeToTlv(AttributeId attributeId, app::AttributeValueEncoder & encoder);
     CHIP_ERROR _GetPollPeriod(uint32_t & buf);
+    void _SetRouterPromotion(bool val);
     void _OnWoBLEAdvertisingStart(void);
     void _OnWoBLEAdvertisingStop(void);
 
@@ -133,8 +139,11 @@ protected:
     CHIP_ERROR _DnsBrowse(const char * aServiceName, DnsBrowseCallback aCallback, void * aContext);
     CHIP_ERROR _DnsResolve(const char * aServiceName, const char * aInstanceName, DnsResolveCallback aCallback, void * aContext);
     static void DispatchResolve(intptr_t context);
+    static void DispatchResolveNoMemory(intptr_t context);
+    static void DispatchAddressResolve(intptr_t context);
     static void DispatchBrowseEmpty(intptr_t context);
     static void DispatchBrowse(intptr_t context);
+    static void DispatchBrowseNoMemory(intptr_t context);
 #endif // CHIP_DEVICE_CONFIG_ENABLE_THREAD_DNS_CLIENT
 #endif // CHIP_DEVICE_CONFIG_ENABLE_THREAD_SRP_CLIENT
 
@@ -150,7 +159,9 @@ private:
     // ===== Private members for use by this class only.
 
     otInstance * mOTInst;
-    uint64_t mOverrunCount = 0;
+    uint64_t mOverrunCount      = 0;
+    bool mIsAttached            = false;
+    bool mTemporaryRxOnWhenIdle = false;
 
     NetworkCommissioning::ThreadDriver::ScanCallback * mpScanCallback;
     NetworkCommissioning::Internal::WirelessDriver::ConnectCallback * mpConnectCallback;
@@ -160,6 +171,7 @@ private:
     ConnectivityManager::SEDIntervalsConfig mIntervalsConfig;
     ConnectivityManager::SEDIntervalMode mIntervalsMode = ConnectivityManager::SEDIntervalMode::Idle;
     uint32_t mActiveModeConsumers                       = 0;
+    bool mDelayIdleTimerRunning                         = false;
 #endif
 
 #if CHIP_DEVICE_CONFIG_ENABLE_THREAD_SRP_CLIENT
@@ -193,7 +205,9 @@ private:
             otDnsTxtEntry mTxtEntries[kTxtMaxNumber];
 
             bool IsUsed() const { return mService.mInstanceName != nullptr; }
-            bool Matches(const char * aInstanceName, const char * aName) const;
+            bool Matches(const char * instanceName, const char * name) const;
+            bool Matches(const char * instanceName, const char * name, uint16_t port, const Span<const char * const> & subTypes,
+                         const Span<const Dnssd::TextEntry> & txtEntries) const;
         };
 
         char mHostName[Dnssd::kHostNameMaxLength + 1];
@@ -253,9 +267,13 @@ private:
 
     static void OnDnsBrowseResult(otError aError, const otDnsBrowseResponse * aResponse, void * aContext);
     static void OnDnsResolveResult(otError aError, const otDnsServiceResponse * aResponse, void * aContext);
+    static void OnDnsAddressResolveResult(otError aError, const otDnsAddressResponse * aResponse, void * aContext);
+
+    static CHIP_ERROR ResolveAddress(intptr_t context, otDnsAddressCallback callback);
+
     static CHIP_ERROR FromOtDnsResponseToMdnsData(otDnsServiceInfo & serviceInfo, const char * serviceType,
-                                                  chip::Dnssd::DnssdService & mdnsService,
-                                                  DnsServiceTxtEntries & serviceTxtEntries);
+                                                  chip::Dnssd::DnssdService & mdnsService, DnsServiceTxtEntries & serviceTxtEntries,
+                                                  otError error);
 #endif // CHIP_DEVICE_CONFIG_ENABLE_THREAD_DNS_CLIENT
 #endif // CHIP_DEVICE_CONFIG_ENABLE_THREAD_SRP_CLIENT
 

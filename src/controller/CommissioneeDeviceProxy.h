@@ -103,9 +103,9 @@ public:
     /**
      *  In case there exists an open session to the device, mark it as expired.
      */
-    CHIP_ERROR CloseSession();
+    void CloseSession();
 
-    CHIP_ERROR Disconnect() override { return CloseSession(); }
+    void Disconnect() override { CloseSession(); }
 
     /**
      * @brief

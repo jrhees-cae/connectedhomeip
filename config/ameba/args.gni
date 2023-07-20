@@ -15,6 +15,8 @@
 # Options from standalone-chip.mk that differ from configure defaults. These
 # options are used from examples/.
 
+import("//build_overrides/pigweed.gni")
+
 chip_device_platform = "ameba"
 
 chip_project_config_include = ""
@@ -34,5 +36,5 @@ chip_config_network_layer_ble = true
 custom_toolchain = "//third_party/connectedhomeip/config/ameba/toolchain:ameba"
 
 pw_build_PIP_CONSTRAINTS =
-    [ "//third_party/connectedhomeip/scripts/constraints.txt" ]
+    [ "//third_party/connectedhomeip/scripts/setup/constraints.txt" ]
 cpp_standard = "c++17"

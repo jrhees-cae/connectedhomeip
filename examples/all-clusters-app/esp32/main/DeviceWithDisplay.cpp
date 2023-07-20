@@ -17,7 +17,9 @@
  */
 
 #include "DeviceWithDisplay.h"
+#include <app-common/zap-generated/attributes/Accessors.h>
 #include <app-common/zap-generated/cluster-enums.h>
+#include <app-common/zap-generated/ids/Clusters.h>
 #include <setup_payload/QRCodeSetupPayloadGenerator.h>
 
 #if CONFIG_HAVE_DISPLAY
@@ -301,13 +303,15 @@ public:
             {
                 // update the operational status here for hardcoded endpoint 1
                 ESP_LOGI(TAG, "Operational status changed to : %d", n);
-                app::Clusters::WindowCovering::Attributes::OperationalStatus::Set(1, static_cast<uint8_t>(n));
+                chip::BitFlags<app::Clusters::WindowCovering::OperationalStatus> opStatus =
+                    static_cast<chip::BitFlags<app::Clusters::WindowCovering::OperationalStatus>>(n);
+                app::Clusters::WindowCovering::Attributes::OperationalStatus::Set(1, opStatus);
             }
             else if (name == "Bat remaining")
             {
                 // update the battery percent remaining here for hardcoded endpoint 1
                 ESP_LOGI(TAG, "Battery percent remaining changed to : %d", n);
-                app::Clusters::PowerSource::Attributes::BatteryPercentRemaining::Set(1, static_cast<uint8_t>(n * 2));
+                app::Clusters::PowerSource::Attributes::BatPercentRemaining::Set(1, static_cast<uint8_t>(n * 2));
             }
             value = buffer;
         }
@@ -318,16 +322,15 @@ public:
 
             if (name == "OnOff" && cluster == "OnOff")
             {
-                value                  = (value == "On") ? "Off" : "On";
-                uint8_t attributeValue = (value == "On") ? 1 : 0;
-                emberAfWriteServerAttribute(endpointIndex + 1, ZCL_ON_OFF_CLUSTER_ID, ZCL_ON_OFF_ATTRIBUTE_ID,
-                                            (uint8_t *) &attributeValue, ZCL_BOOLEAN_ATTRIBUTE_TYPE);
+                value               = (value == "On") ? "Off" : "On";
+                bool attributeValue = (value == "On");
+                app::Clusters::OnOff::Attributes::OnOff::Set(endpointIndex + 1, attributeValue);
             }
 
             if (name == "Occupancy" && cluster == "Occupancy Sensor")
             {
-                value                  = (value == "Yes") ? "No" : "Yes";
-                uint8_t attributeValue = (value == "Yes") ? 1 : 0;
+                value               = (value == "Yes") ? "No" : "Yes";
+                bool attributeValue = (value == "Yes");
                 ESP_LOGI(TAG, "Occupancy changed to : %s", value.c_str());
                 // update the current occupancy here for hardcoded endpoint 1
                 app::Clusters::OccupancySensing::Attributes::Occupancy::Set(1, attributeValue);
@@ -351,27 +354,27 @@ public:
             else if (name == "Charge level" && cluster == "Power Source")
             {
                 using namespace chip::app::Clusters::PowerSource;
-                auto attributeValue = BatChargeLevel::kOk;
+                auto attributeValue = BatChargeLevelEnum::kOk;
 
                 if (value == "OK")
                 {
                     value          = "Warning";
-                    attributeValue = BatChargeLevel::kWarning;
+                    attributeValue = BatChargeLevelEnum::kWarning;
                 }
                 else if (value == "Warning")
                 {
                     value          = "Critical";
-                    attributeValue = BatChargeLevel::kCritical;
+                    attributeValue = BatChargeLevelEnum::kCritical;
                 }
                 else
                 {
                     value          = "OK";
-                    attributeValue = BatChargeLevel::kOk;
+                    attributeValue = BatChargeLevelEnum::kOk;
                 }
 
                 // update the battery charge level here for hardcoded endpoint 1
                 ESP_LOGI(TAG, "Battery charge level changed to : %u", static_cast<uint8_t>(attributeValue));
-                app::Clusters::PowerSource::Attributes::BatteryChargeLevel::Set(1, static_cast<uint8_t>(attributeValue));
+                app::Clusters::PowerSource::Attributes::BatChargeLevel::Set(1, attributeValue);
             }
             else
             {
@@ -542,18 +545,6 @@ public:
 private:
     std::vector<std::string> options;
 };
-class CustomScreen : public Screen
-{
-public:
-    virtual void Display()
-    {
-        TFT_drawCircle(0.3 * DisplayWidth, 0.3 * DisplayHeight, 8, TFT_BLUE);
-        TFT_drawCircle(0.7 * DisplayWidth, 0.3 * DisplayHeight, 8, TFT_BLUE);
-        TFT_drawLine(0.2 * DisplayWidth, 0.6 * DisplayHeight, 0.3 * DisplayWidth, 0.7 * DisplayHeight, TFT_BLUE);
-        TFT_drawLine(0.3 * DisplayWidth, 0.7 * DisplayHeight, 0.7 * DisplayWidth, 0.7 * DisplayHeight, TFT_BLUE);
-        TFT_drawLine(0.7 * DisplayWidth, 0.7 * DisplayHeight, 0.8 * DisplayWidth, 0.6 * DisplayHeight, TFT_BLUE);
-    }
-};
 
 void SetupPretendDevices()
 {
@@ -676,15 +667,17 @@ void SetupPretendDevices()
     AddAttribute("Current Tilt", "5");
     app::Clusters::WindowCovering::Attributes::CurrentPositionTiltPercent100ths::Set(1, static_cast<uint16_t>(5 * 100));
     AddAttribute("Opr Status", "0");
-    app::Clusters::WindowCovering::Attributes::OperationalStatus::Set(1, static_cast<uint8_t>(0));
+    chip::BitFlags<app::Clusters::WindowCovering::OperationalStatus> opStatus =
+        static_cast<chip::BitFlags<app::Clusters::WindowCovering::OperationalStatus>>(0);
+    app::Clusters::WindowCovering::Attributes::OperationalStatus::Set(1, opStatus);
 
     AddDevice("Battery");
     AddEndpoint("1");
     AddCluster("Power Source");
     AddAttribute("Bat remaining", "70");
-    app::Clusters::PowerSource::Attributes::BatteryPercentRemaining::Set(1, static_cast<uint8_t>(70 * 2));
+    app::Clusters::PowerSource::Attributes::BatPercentRemaining::Set(1, static_cast<uint8_t>(70 * 2));
     AddAttribute("Charge level", "0");
-    app::Clusters::PowerSource::Attributes::BatteryChargeLevel::Set(1, static_cast<uint8_t>(0));
+    app::Clusters::PowerSource::Attributes::BatChargeLevel::Set(1, app::Clusters::PowerSource::BatChargeLevelEnum::kOk);
 }
 
 esp_err_t InitM5Stack(std::string qrCodeText)
@@ -724,20 +717,10 @@ esp_err_t InitM5Stack(std::string qrCodeText)
                        ESP_LOGI(TAG, "Opening Setup list");
                        ScreenManager::PushScreen(chip::Platform::New<ListScreen>(chip::Platform::New<SetupListModel>()));
                    })
-            ->Item("Status",
-                   [=]() {
-                       ESP_LOGI(TAG, "Opening Status screen");
-                       ScreenManager::PushScreen(chip::Platform::New<StatusScreen>());
-                   })
-            ->Item("Custom",
-                   []() {
-                       ESP_LOGI(TAG, "Opening custom screen");
-                       ScreenManager::PushScreen(chip::Platform::New<CustomScreen>());
-                   })
-            ->Item("More")
-            ->Item("Items")
-            ->Item("For")
-            ->Item("Demo")));
+            ->Item("Status", [=]() {
+                ESP_LOGI(TAG, "Opening Status screen");
+                ScreenManager::PushScreen(chip::Platform::New<StatusScreen>());
+            })));
     return ESP_OK;
 }
 #endif

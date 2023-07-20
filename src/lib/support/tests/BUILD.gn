@@ -34,6 +34,7 @@ chip_test_suite("tests") {
     "TestErrorStr.cpp",
     "TestFixedBufferAllocator.cpp",
     "TestFold.cpp",
+    "TestIniEscaping.cpp",
     "TestIntrusiveList.cpp",
     "TestOwnerOf.cpp",
     "TestPersistedCounter.cpp",
@@ -46,6 +47,7 @@ chip_test_suite("tests") {
     "TestSpan.cpp",
     "TestStateMachine.cpp",
     "TestStringBuilder.cpp",
+    "TestStringSplitter.cpp",
     "TestTestPersistentStorageDelegate.cpp",
     "TestThreadOperationalDataset.cpp",
     "TestTimeUtils.cpp",
@@ -59,11 +61,20 @@ chip_test_suite("tests") {
     test_sources += [ "TestCHIPArgParser.cpp" ]
   }
 
-  cflags = [ "-Wconversion" ]
+  cflags = [
+    "-Wconversion",
+
+    # TODO(#21255): work-around for SimpleStateMachine constructor issue.
+    "-Wno-uninitialized",
+
+    # TestStringSplitter intentionally validates string overflows.
+    "-Wno-stringop-truncation",
+  ]
 
   public_deps = [
     "${chip_root}/src/credentials",
     "${chip_root}/src/lib/core",
+    "${chip_root}/src/lib/support:testing",
     "${chip_root}/src/lib/support/jsontlv",
     "${chip_root}/src/platform",
     "${nlunit_test_root}:nlunit-test",

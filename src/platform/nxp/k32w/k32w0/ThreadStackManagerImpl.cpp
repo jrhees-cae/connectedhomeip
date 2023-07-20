@@ -31,10 +31,14 @@
 #include <platform/OpenThread/OpenThreadUtils.h>
 #include <platform/ThreadStackManager.h>
 
-#include <platform/FreeRTOS/GenericThreadStackManagerImpl_FreeRTOS.cpp>
-#include <platform/OpenThread/GenericThreadStackManagerImpl_OpenThread.cpp>
+#include <platform/FreeRTOS/GenericThreadStackManagerImpl_FreeRTOS.hpp>
+#include <platform/OpenThread/GenericThreadStackManagerImpl_OpenThread.hpp>
 
 #include <lib/support/CHIPPlatformMemory.h>
+
+#if defined(cPWR_UsePowerDownMode) && (cPWR_UsePowerDownMode)
+extern "C" bool isThreadInitialized();
+#endif
 
 namespace chip {
 namespace DeviceLayer {
@@ -60,6 +64,18 @@ CHIP_ERROR ThreadStackManagerImpl::InitThreadStack(otInstance * otInst)
 
 exit:
     return err;
+}
+
+void ThreadStackManagerImpl::ProcessThreadActivity()
+{
+
+#if defined(cPWR_UsePowerDownMode) && (cPWR_UsePowerDownMode)
+    if (isThreadInitialized())
+#endif
+    {
+        otTaskletsProcess(OTInstance());
+        otSysProcessDrivers(OTInstance());
+    }
 }
 
 bool ThreadStackManagerImpl::IsInitialized()
@@ -106,4 +122,9 @@ extern "C" void * otPlatCAlloc(size_t aNum, size_t aSize)
 extern "C" void otPlatFree(void * aPtr)
 {
     return CHIPPlatformMemoryFree(aPtr);
+}
+
+extern "C" void * otPlatRealloc(void * p, size_t aSize)
+{
+    return CHIPPlatformMemoryRealloc(p, aSize);
 }

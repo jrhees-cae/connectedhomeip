@@ -56,9 +56,12 @@ enum
     ZCL_LONG_CHAR_STRING_ATTRIBUTE_TYPE  = 0x44, // Long Character String
     ZCL_ARRAY_ATTRIBUTE_TYPE             = 0x48, // List
     ZCL_STRUCT_ATTRIBUTE_TYPE            = 0x4C, // Structure
+    ZCL_POSIX_MS_ATTRIBUTE_TYPE          = 0xD0, // Posix Time Milliseconds
+    ZCL_SYSTIME_MS_ATTRIBUTE_TYPE        = 0xD1, // System Time Milliseconds
+    ZCL_ELAPSED_S_ATTRIBUTE_TYPE         = 0xD2, // Elapsed Time Seconds
+    ZCL_TEMPERATURE_ATTRIBUTE_TYPE       = 0xDB, // Temperature
     ZCL_TOD_ATTRIBUTE_TYPE               = 0xE0, // Time of day
     ZCL_DATE_ATTRIBUTE_TYPE              = 0xE1, // Date
-    ZCL_UTC_ATTRIBUTE_TYPE               = 0xE2, // UTC Time
     ZCL_EPOCH_US_ATTRIBUTE_TYPE          = 0xE3, // Epoch Microseconds
     ZCL_EPOCH_S_ATTRIBUTE_TYPE           = 0xE4, // Epoch Seconds
     ZCL_SYSTIME_US_ATTRIBUTE_TYPE        = 0xE5, // System Time Microseconds

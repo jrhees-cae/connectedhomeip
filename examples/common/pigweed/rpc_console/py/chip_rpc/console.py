@@ -37,32 +37,31 @@ An example RPC command:
 """
 
 import argparse
-from typing import Callable
-from collections import namedtuple
-from inspect import cleandoc
 import logging
 import re
 import socket
-from concurrent.futures import ThreadPoolExecutor
 import sys
 import threading
-from typing import Any, BinaryIO, Collection
+from collections import namedtuple
+from concurrent.futures import ThreadPoolExecutor
+from inspect import cleandoc
+from typing import Any, BinaryIO, Callable, Collection
 
+import pw_cli.log
 from chip_rpc.plugins.device_toolbar import DeviceToolbar
 from chip_rpc.plugins.helper_scripts import HelperScripts
-import pw_cli.log
 from pw_console import PwConsoleEmbed
 from pw_console.__main__ import create_temp_log_file
 from pw_console.pyserial_wrapper import SerialWithLogging
 from pw_hdlc.rpc import HdlcRpcClient, default_channels
 from pw_rpc import callback_client
 from pw_rpc.console_tools.console import ClientInfo, flattened_rpc_completions
-
-from pw_tokenizer.database import LoadTokenDatabases
-from pw_tokenizer.detokenize import Detokenizer, detokenize_base64
 from pw_tokenizer import tokens
+from pw_tokenizer.database import LoadTokenDatabases
+from pw_tokenizer.detokenize import Detokenizer
 
 # Protos
+# isort: off
 from attributes_service import attributes_service_pb2
 from button_service import button_service_pb2
 from descriptor_service import descriptor_service_pb2
@@ -253,7 +252,8 @@ def write_to_output(data: bytes,
                      "E": logging.ERROR, "F": logging.FATAL, "V": logging.DEBUG, "D": logging.DEBUG,
                      "<inf>": logging.INFO, "<dbg>": logging.DEBUG, "<err>": logging.ERROR,
                      "<info  >": logging.INFO, "<warn  >": logging.WARNING,
-                     "<error >": logging.ERROR, "<detail>": logging.DEBUG}
+                     "<error >": logging.ERROR, "<detail>": logging.DEBUG,
+                     "ERR": logging.ERROR, "DBG": logging.DEBUG, "INF": logging.INFO}
 
     ESP_CHIP_REGEX = r"(?P<level>[IWEFV]) \((?P<time>\d+)\) (?P<mod>chip\[[a-zA-Z]+\]):\s(?P<msg>.*)"
     ESP_APP_REGEX = r"(?P<level>[IWEFVD]) \((?P<time>\d+)\) (?P<mod>[a-z\-_A-Z]+):\s(?P<msg>.*)"
@@ -267,6 +267,8 @@ def write_to_output(data: bytes,
     NXP_CHIP_REGEX = r"\[(?P<time>\d+)\]\[(?P<level>[EPDF])\]\[(?P<mod>[a-z\-A-Z]+)\](?P<msg>.*)"
     NXP_APP_REGEX = r"\[(?P<time>\d+)\]\[(?P<mod>[a-z\-A-Z]+)\](?P<msg>.*)"
 
+    LINUX_REGEX = r".*(?P<level>INF|DBG|ERR).*\s+\[(?P<time>[0-9]+\.?[0-9]*)\]\[(?P<pid>\d+)\:(?P<tid>\d+)\] CHIP:(?P<mod>[a-z\-A-Z]+)\: (?P<msg>.*)"
+
     LogRegexes = [RegexStruct("ESP", "CHIP", re.compile(ESP_CHIP_REGEX), 4),
                   RegexStruct("ESP", "APP", re.compile(ESP_APP_REGEX), 4),
                   RegexStruct("EFR", "CHIP", re.compile(EFR_CHIP_REGEX), 3),
@@ -274,7 +276,8 @@ def write_to_output(data: bytes,
                   RegexStruct("NRF", "CHIP", re.compile(NRF_CHIP_REGEX), 4),
                   RegexStruct("NRF", "APP", re.compile(NRF_APP_REGEX), 3),
                   RegexStruct("NXP", "CHIP", re.compile(NXP_CHIP_REGEX), 4),
-                  RegexStruct("NXP", "APP", re.compile(NXP_APP_REGEX), 3)
+                  RegexStruct("NXP", "APP", re.compile(NXP_APP_REGEX), 3),
+                  RegexStruct("LINUX", "CHIP", re.compile(LINUX_REGEX), 6)
                   ]
     for line in log_line.decode(errors="surrogateescape").splitlines():
         fields = {'level': logging.INFO, "time": "",
@@ -301,11 +304,11 @@ def write_to_output(data: bytes,
 
 def _read_raw_serial(read: Callable[[], bytes], output):
     """Continuously read and pass to output."""
-    with ThreadPoolExecutor() as executor:
+    with ThreadPoolExecutor() as _:
         while True:
             try:
                 data = read()
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception:  # pylint: disable=broad-except
                 continue
             if data:
                 output(data)
@@ -325,7 +328,7 @@ def console(device: str, baudrate: int,
     serial_impl = SerialWithLogging
 
     if socket_addr is None:
-        serial_device = serial_impl(device, baudrate, timeout=0)
+        serial_device = serial_impl(device, baudrate, timeout=0.1)
         def read(): return serial_device.read(8192)
         write = serial_device.write
     else:

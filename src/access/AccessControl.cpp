@@ -19,16 +19,19 @@
 // Included for the default AccessControlDelegate logging enables/disables.
 // See `chip_access_control_policy_logging_verbosity` in `src/app/BUILD.gn` for
 // the levels available.
-#include <app/AppBuildConfig.h>
+#include <app/AppConfig.h>
 
 #include "AccessControl.h"
 
-namespace {
+namespace chip {
+namespace Access {
 
 using chip::CATValues;
 using chip::FabricIndex;
 using chip::NodeId;
 using namespace chip::Access;
+
+namespace {
 
 AccessControl defaultAccessControl;
 AccessControl * globalAccessControl = &defaultAccessControl;
@@ -68,12 +71,22 @@ bool CheckRequestPrivilegeAgainstEntryPrivilege(Privilege requestPrivilege, Priv
 
 constexpr bool IsValidCaseNodeId(NodeId aNodeId)
 {
-    return chip::IsOperationalNodeId(aNodeId) || (chip::IsCASEAuthTag(aNodeId) && ((aNodeId & chip::kTagVersionMask) != 0));
+    if (IsOperationalNodeId(aNodeId))
+    {
+        return true;
+    }
+
+    if (IsCASEAuthTag(aNodeId) && (GetCASEAuthTagVersion(CASEAuthTagFromNodeId(aNodeId)) != 0))
+    {
+        return true;
+    }
+
+    return false;
 }
 
 constexpr bool IsValidGroupNodeId(NodeId aNodeId)
 {
-    return chip::IsGroupId(aNodeId) && chip::IsValidGroupId(chip::GroupIdFromNodeId(aNodeId));
+    return IsGroupId(aNodeId) && IsValidGroupId(GroupIdFromNodeId(aNodeId));
 }
 
 #if CHIP_PROGRESS_LOGGING && CHIP_CONFIG_ACCESS_CONTROL_POLICY_LOGGING_VERBOSITY > 1
@@ -161,9 +174,6 @@ char GetPrivilegeStringForLogging(Privilege privilege)
 
 } // namespace
 
-namespace chip {
-namespace Access {
-
 AccessControl::Entry::Delegate AccessControl::Entry::mDefaultDelegate;
 AccessControl::EntryIterator::Delegate AccessControl::EntryIterator::mDefaultDelegate;
 
@@ -184,13 +194,12 @@ CHIP_ERROR AccessControl::Init(AccessControl::Delegate * delegate, DeviceTypeRes
     return retval;
 }
 
-CHIP_ERROR AccessControl::Finish()
+void AccessControl::Finish()
 {
-    VerifyOrReturnError(IsInitialized(), CHIP_ERROR_INCORRECT_STATE);
+    VerifyOrReturn(IsInitialized());
     ChipLogProgress(DataManagement, "AccessControl: finishing");
-    CHIP_ERROR retval = mDelegate->Finish();
-    mDelegate         = nullptr;
-    return retval;
+    mDelegate->Finish();
+    mDelegate = nullptr;
 }
 
 CHIP_ERROR AccessControl::CreateEntry(const SubjectDescriptor * subjectDescriptor, FabricIndex fabric, size_t * index,
@@ -540,17 +549,18 @@ bool AccessControl::IsValid(const Entry & entry)
     const char * log = "unexpected error";
     IgnoreUnusedVariable(log); // logging may be disabled
 
-    AuthMode authMode;
-    FabricIndex fabricIndex;
-    Privilege privilege;
-    size_t subjectCount = 0;
-    size_t targetCount  = 0;
+    AuthMode authMode       = AuthMode::kNone;
+    FabricIndex fabricIndex = kUndefinedFabricIndex;
+    Privilege privilege     = static_cast<Privilege>(0);
+    size_t subjectCount     = 0;
+    size_t targetCount      = 0;
 
-    SuccessOrExit(entry.GetAuthMode(authMode));
-    SuccessOrExit(entry.GetFabricIndex(fabricIndex));
-    SuccessOrExit(entry.GetPrivilege(privilege));
-    SuccessOrExit(entry.GetSubjectCount(subjectCount));
-    SuccessOrExit(entry.GetTargetCount(targetCount));
+    CHIP_ERROR err = CHIP_NO_ERROR;
+    SuccessOrExit(err = entry.GetAuthMode(authMode));
+    SuccessOrExit(err = entry.GetFabricIndex(fabricIndex));
+    SuccessOrExit(err = entry.GetPrivilege(privilege));
+    SuccessOrExit(err = entry.GetSubjectCount(subjectCount));
+    SuccessOrExit(err = entry.GetTargetCount(targetCount));
 
 #if CHIP_CONFIG_ACCESS_CONTROL_POLICY_LOGGING_VERBOSITY > 1
     ChipLogProgress(DataManagement, "AccessControl: validating f=%u p=%c a=%c s=%d t=%d", fabricIndex,
@@ -573,7 +583,7 @@ bool AccessControl::IsValid(const Entry & entry)
     for (size_t i = 0; i < subjectCount; ++i)
     {
         NodeId subject;
-        SuccessOrExit(entry.GetSubject(i, subject));
+        SuccessOrExit(err = entry.GetSubject(i, subject));
         const bool kIsCase  = authMode == AuthMode::kCase;
         const bool kIsGroup = authMode == AuthMode::kGroup;
 #if CHIP_CONFIG_ACCESS_CONTROL_POLICY_LOGGING_VERBOSITY > 1
@@ -585,7 +595,7 @@ bool AccessControl::IsValid(const Entry & entry)
     for (size_t i = 0; i < targetCount; ++i)
     {
         Entry::Target target;
-        SuccessOrExit(entry.GetTarget(i, target));
+        SuccessOrExit(err = entry.GetTarget(i, target));
         const bool kHasCluster    = target.flags & Entry::Target::kCluster;
         const bool kHasEndpoint   = target.flags & Entry::Target::kEndpoint;
         const bool kHasDeviceType = target.flags & Entry::Target::kDeviceType;
@@ -599,7 +609,14 @@ bool AccessControl::IsValid(const Entry & entry)
     return true;
 
 exit:
-    ChipLogError(DataManagement, "AccessControl: %s", log);
+    if (err != CHIP_NO_ERROR)
+    {
+        ChipLogError(DataManagement, "AccessControl: %s %" CHIP_ERROR_FORMAT, log, err.Format());
+    }
+    else
+    {
+        ChipLogError(DataManagement, "AccessControl: %s", log);
+    }
     return false;
 }
 
@@ -621,6 +638,11 @@ void SetAccessControl(AccessControl & accessControl)
 {
     ChipLogProgress(DataManagement, "AccessControl: setting");
     globalAccessControl = &accessControl;
+}
+
+void ResetAccessControlToDefault()
+{
+    globalAccessControl = &defaultAccessControl;
 }
 
 } // namespace Access

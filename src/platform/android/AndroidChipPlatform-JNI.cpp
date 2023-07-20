@@ -33,13 +33,14 @@
 #include <platform/ConnectivityManager.h>
 #include <platform/KeyValueStoreManager.h>
 #include <platform/internal/BLEManager.h>
-#include <trace/trace.h>
 
 #include "AndroidChipPlatform-JNI.h"
 #include "BLEManagerImpl.h"
+#include "BleConnectCallback-JNI.h"
 #include "CommissionableDataProviderImpl.h"
 #include "DiagnosticDataProviderImpl.h"
 #include "DnssdImpl.h"
+#include "tracing.h"
 
 using namespace chip;
 
@@ -84,8 +85,10 @@ CHIP_ERROR AndroidChipPlatformJNI_OnLoad(JavaVM * jvm, void * reserved)
     SuccessOrExit(err);
     ChipLogProgress(DeviceLayer, "Java class references loaded.");
 
-    chip::InitializeTracing();
+    err = BleConnectCallbackJNI_OnLoad(jvm, reserved);
+    SuccessOrExit(err);
 
+    chip::Android::InitializeTracing();
 exit:
     if (err != CHIP_NO_ERROR)
     {
@@ -98,7 +101,10 @@ exit:
 
 void AndroidChipPlatformJNI_OnUnload(JavaVM * jvm, void * reserved)
 {
+    chip::Android::ShutdownTracing();
+
     ChipLogProgress(DeviceLayer, "AndroidChipPlatform JNI_OnUnload() called");
+    BleConnectCallbackJNI_OnUnload(jvm, reserved);
     chip::Platform::MemoryShutdown();
 }
 
@@ -230,19 +236,26 @@ JNI_METHOD(void, setDiagnosticDataProviderManager)(JNIEnv * env, jclass self, jo
     chip::DeviceLayer::DiagnosticDataProviderImpl::GetDefaultInstance().InitializeWithObject(manager);
 }
 
-// for ServiceResolver
-JNI_METHOD(void, nativeSetServiceResolver)(JNIEnv * env, jclass self, jobject resolver, jobject chipMdnsCallback)
+// for ServiceResolver and  ServiceBrowser
+JNI_METHOD(void, nativeSetDnssdDelegates)(JNIEnv * env, jclass self, jobject resolver, jobject browser, jobject chipMdnsCallback)
 {
     chip::DeviceLayer::StackLock lock;
-    chip::Dnssd::InitializeWithObjects(resolver, chipMdnsCallback);
+    chip::Dnssd::InitializeWithObjects(resolver, browser, chipMdnsCallback);
 }
 
 JNI_MDNSCALLBACK_METHOD(void, handleServiceResolve)
-(JNIEnv * env, jclass self, jstring instanceName, jstring serviceType, jstring address, jint port, jobject attributes,
- jlong callbackHandle, jlong contextHandle)
+(JNIEnv * env, jclass self, jstring instanceName, jstring serviceType, jstring hostName, jstring address, jint port,
+ jobject attributes, jlong callbackHandle, jlong contextHandle)
 {
     using ::chip::Dnssd::HandleResolve;
-    HandleResolve(instanceName, serviceType, address, port, attributes, callbackHandle, contextHandle);
+    HandleResolve(instanceName, serviceType, hostName, address, port, attributes, callbackHandle, contextHandle);
+}
+
+JNI_MDNSCALLBACK_METHOD(void, handleServiceBrowse)
+(JNIEnv * env, jclass self, jobjectArray instanceName, jstring serviceType, jlong callbackHandle, jlong contextHandle)
+{
+    using ::chip::Dnssd::HandleBrowse;
+    HandleBrowse(instanceName, serviceType, callbackHandle, contextHandle);
 }
 
 #if CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE

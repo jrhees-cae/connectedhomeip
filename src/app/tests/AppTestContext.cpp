@@ -49,14 +49,13 @@ CHIP_ERROR AppContext::Init()
     return CHIP_NO_ERROR;
 }
 
-CHIP_ERROR AppContext::Shutdown()
+void AppContext::Shutdown()
 {
-    ReturnErrorOnFailure(Access::GetAccessControl().Finish());
+    Access::GetAccessControl().Finish();
+    Access::ResetAccessControlToDefault();
 
     chip::app::InteractionModelEngine::GetInstance()->Shutdown();
-    ReturnErrorOnFailure(Super::Shutdown());
-
-    return CHIP_NO_ERROR;
+    Super::Shutdown();
 }
 
 } // namespace Test

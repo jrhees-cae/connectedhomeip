@@ -28,6 +28,7 @@
 
 using namespace chip;
 using namespace chip::Shell;
+using namespace chip::app;
 
 void ApplicationInit() {}
 
@@ -47,8 +48,6 @@ int main(int argc, char * argv[])
 
     cmd_misc_init();
     cmd_otcli_init();
-    cmd_ping_init();
-    cmd_send_init();
 #if CHIP_SHELL_ENABLE_CMD_SERVER
     cmd_app_server_init();
 #endif

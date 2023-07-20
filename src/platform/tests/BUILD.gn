@@ -40,6 +40,7 @@ if (chip_device_platform != "none" && chip_device_platform != "fake") {
 
     public_deps = [
       "${chip_root}/src/lib/support",
+      "${chip_root}/src/lib/support:testing",
       "${chip_root}/src/platform",
       "${chip_root}/src/system",
       "${nlunit_test_root}:nlunit-test",
@@ -48,7 +49,10 @@ if (chip_device_platform != "none" && chip_device_platform != "fake") {
     if (chip_mdns != "none" && chip_enable_dnssd_tests &&
         (chip_device_platform == "linux" || chip_device_platform == "darwin")) {
       test_sources += [ "TestDnssd.cpp" ]
-      public_deps += [ "${chip_root}/src/lib/dnssd" ]
+      public_deps += [
+        "${chip_root}/src/lib/dnssd",
+        "${chip_root}/src/lib/dnssd/minimal_mdns",
+      ]
     }
 
     # These tests appear to be broken on Mac.
@@ -82,15 +86,12 @@ if (chip_device_platform != "none" && chip_device_platform != "fake") {
     }
 
     if (current_os == "zephyr" || current_os == "android" ||
-        current_os == "mbed") {
+        current_os == "mbed" || current_os == "cmsis-rtos") {
       test_sources += [ "TestKeyValueStoreMgr.cpp" ]
     }
 
     if (chip_device_platform == "linux") {
-      test_sources += [
-        "TestConnectivityMgr.cpp",
-        "TestFailSafeContext.cpp",
-      ]
+      test_sources += [ "TestConnectivityMgr.cpp" ]
     }
   }
 } else {

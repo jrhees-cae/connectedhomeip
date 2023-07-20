@@ -34,13 +34,20 @@ protected:
 
     bool CheckConstraintType(const char * itemName, const char * current, const char * expected)
     {
-        ChipLogError(chipTool, "Warning: %s type checking is not implemented yet. Expected type: '%s'", itemName, expected);
+        if (strcmp(current, expected) != 0)
+        {
+            Exit(std::string(itemName) + " type (" + std::string(current) + ") is different than the expected type (" +
+                 std::string(expected) + ").");
+            return false;
+        }
+
         return true;
     }
 
     bool CheckConstraintFormat(const char * itemName, const char * current, const char * expected)
     {
-        ChipLogError(chipTool, "Warning: %s format checking is not implemented yet. Expected format: '%s'", itemName, expected);
+        ChipLogError(chipTool, "Warning: %s format checking is not implemented yet. Expected format: '%s'",
+                     StringOrNullMarker(itemName), StringOrNullMarker(expected));
         return true;
     }
 
@@ -59,11 +66,73 @@ protected:
     {
         if (current > expected)
         {
-            Exit(std::string(itemName) + " length > minLength: " + std::to_string(current) + " > " + std::to_string(expected));
+            Exit(std::string(itemName) + " length > maxLength: " + std::to_string(current) + " > " + std::to_string(expected));
             return false;
         }
 
         return true;
+    }
+
+    template <typename T>
+    bool CheckConstraintMinLength(const char * itemName, const chip::Span<T> & current, uint64_t expected)
+    {
+        return CheckConstraintMinLength(itemName, current.size(), expected);
+    }
+
+    template <typename T>
+    bool CheckConstraintMinLength(const char * itemName, const chip::app::DataModel::Nullable<chip::Span<T>> & current,
+                                  uint64_t expected)
+    {
+        if (current.IsNull())
+        {
+            return true;
+        }
+
+        return CheckConstraintMinLength(itemName, current.Value(), expected);
+    }
+
+    template <typename T>
+    bool CheckConstraintMaxLength(const char * itemName, const chip::Span<T> & current, uint64_t expected)
+    {
+        return CheckConstraintMaxLength(itemName, current.size(), expected);
+    }
+
+    template <typename T>
+    bool CheckConstraintMaxLength(const char * itemName, const chip::app::DataModel::Nullable<chip::Span<T>> & current,
+                                  uint64_t expected)
+    {
+        if (current.IsNull())
+        {
+            return true;
+        }
+
+        return CheckConstraintMaxLength(itemName, current.Value(), expected);
+    }
+
+    template <typename T>
+    bool CheckConstraintMinLength(const char * itemName, const chip::app::DataModel::DecodableList<T> & current, uint64_t expected)
+    {
+        size_t size;
+        CHIP_ERROR err = current.ComputeSize(&size);
+        if (err != CHIP_NO_ERROR)
+        {
+            Exit(std::string(itemName) + " length cannot be extracted: " + err.AsString());
+            return false;
+        }
+        return CheckConstraintMinLength(itemName, size, expected);
+    }
+
+    template <typename T>
+    bool CheckConstraintMaxLength(const char * itemName, const chip::app::DataModel::DecodableList<T> & current, uint64_t expected)
+    {
+        size_t size;
+        CHIP_ERROR err = current.ComputeSize(&size);
+        if (err != CHIP_NO_ERROR)
+        {
+            Exit(std::string(itemName) + " length cannot be extracted: " + err.AsString());
+            return false;
+        }
+        return CheckConstraintMaxLength(itemName, size, expected);
     }
 
     bool CheckConstraintStartsWith(const char * itemName, const chip::CharSpan current, const char * expected)
@@ -101,7 +170,7 @@ protected:
         bool isUpperCase = true;
         for (size_t i = 0; i < strlen(current); i++)
         {
-            if (!isdigit(current[i]) && !isupper(current[i]))
+            if (islower(current[i]))
             {
                 isUpperCase = false;
                 break;
@@ -201,10 +270,23 @@ protected:
         return true;
     }
 
-    template <typename T, typename U, std::enable_if_t<std::is_enum<T>::value && !std::is_pointer<U>::value, int> = 0>
+    template <typename T, typename U,
+              std::enable_if_t<std::is_enum<T>::value && !std::is_enum<U>::value && !std::is_pointer<U>::value, int> = 0>
     bool CheckConstraintMinValue(const char * itemName, T current, U expected)
     {
         return CheckConstraintMinValue(itemName, chip::to_underlying(current), expected);
+    }
+
+    template <typename T, typename U, std::enable_if_t<std::is_enum<T>::value && std::is_enum<U>::value, int> = 0>
+    bool CheckConstraintMinValue(const char * itemName, T current, U expected)
+    {
+        return CheckConstraintMinValue(itemName, chip::to_underlying(current), chip::to_underlying(expected));
+    }
+
+    template <typename T, typename U, std::enable_if_t<!std::is_enum<T>::value && std::is_enum<U>::value, int> = 0>
+    bool CheckConstraintMinValue(const char * itemName, T current, U expected)
+    {
+        return CheckConstraintMinValue(itemName, current, chip::to_underlying(expected));
     }
 
     template <typename T, typename U, std::enable_if_t<!std::is_pointer<U>::value, int> = 0>
@@ -242,6 +324,17 @@ protected:
     }
 
     template <typename T, typename U>
+    bool CheckConstraintMinValue(const char * itemName, const chip::app::DataModel::Nullable<T> & current,
+                                 const chip::app::DataModel::Nullable<U> & expected)
+    {
+        if (expected.IsNull())
+        {
+            return true;
+        }
+        return CheckConstraintMinValue(itemName, current, expected.Value());
+    }
+
+    template <typename T, typename U>
     bool CheckConstraintMinValue(const char * itemName, const T & current, const chip::Optional<U> & expected)
     {
         if (!expected.HasValue())
@@ -264,10 +357,23 @@ protected:
         return true;
     }
 
-    template <typename T, typename U, std::enable_if_t<std::is_enum<T>::value && !std::is_pointer<U>::value, int> = 0>
+    template <typename T, typename U,
+              std::enable_if_t<std::is_enum<T>::value && !std::is_enum<U>::value && !std::is_pointer<U>::value, int> = 0>
     bool CheckConstraintMaxValue(const char * itemName, T current, U expected)
     {
         return CheckConstraintMaxValue(itemName, chip::to_underlying(current), expected);
+    }
+
+    template <typename T, typename U, std::enable_if_t<std::is_enum<T>::value && std::is_enum<U>::value, int> = 0>
+    bool CheckConstraintMaxValue(const char * itemName, T current, U expected)
+    {
+        return CheckConstraintMaxValue(itemName, chip::to_underlying(current), chip::to_underlying(expected));
+    }
+
+    template <typename T, typename U, std::enable_if_t<!std::is_enum<T>::value && std::is_enum<U>::value, int> = 0>
+    bool CheckConstraintMaxValue(const char * itemName, T current, U expected)
+    {
+        return CheckConstraintMaxValue(itemName, current, chip::to_underlying(expected));
     }
 
     template <typename T, typename U, std::enable_if_t<!std::is_pointer<U>::value, int> = 0>
@@ -302,6 +408,17 @@ protected:
             return true;
         }
         return CheckConstraintMaxValue(itemName, current.Value(), static_cast<T>(expected));
+    }
+
+    template <typename T, typename U>
+    bool CheckConstraintMaxValue(const char * itemName, const chip::app::DataModel::Nullable<T> & current,
+                                 const chip::app::DataModel::Nullable<U> & expected)
+    {
+        if (expected.IsNull())
+        {
+            return true;
+        }
+        return CheckConstraintMaxValue(itemName, current, expected.Value());
     }
 
     template <typename T, typename U>
@@ -509,5 +626,53 @@ protected:
         }
 
         return true;
+    }
+
+    template <typename T, typename U>
+    bool CheckConstraintHasMasksSet(const char * itemName, const T & current, const U & expected)
+    {
+        if (current & expected)
+        {
+            return true;
+        }
+
+        Exit(std::string(itemName) + " expects the field with value " + std::to_string(expected) + " to be set but it is not.");
+        return false;
+    }
+
+    template <typename T, typename U>
+    bool CheckConstraintHasMasksSet(const char * itemName, const chip::BitMask<T> & current, const U & expected)
+    {
+        if (current.Has(static_cast<T>(expected)))
+        {
+            return true;
+        }
+
+        Exit(std::string(itemName) + " expects the field with value " + std::to_string(expected) + " to be set but it is not.");
+        return false;
+    }
+
+    template <typename T, typename U>
+    bool CheckConstraintHasMasksClear(const char * itemName, const T & current, const U & expected)
+    {
+        if ((current & expected) == 0)
+        {
+            return true;
+        }
+
+        Exit(std::string(itemName) + " expects the field with value " + std::to_string(expected) + " to not be set but it is.");
+        return false;
+    }
+
+    template <typename T, typename U>
+    bool CheckConstraintHasMasksClear(const char * itemName, const chip::BitMask<T> & current, const U & expected)
+    {
+        if (!current.Has(static_cast<T>(expected)))
+        {
+            return true;
+        }
+
+        Exit(std::string(itemName) + " expects the field with value " + std::to_string(expected) + " to not be set but it is.");
+        return false;
     }
 };

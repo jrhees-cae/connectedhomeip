@@ -51,8 +51,12 @@ CHIP_ERROR PowerSourceAttrAccess::Read(const ConcreteReadAttributePath & aPath, 
 
     switch (aPath.mAttributeId)
     {
-    case ActiveBatteryFaults::Id:
+    case ActiveBatFaults::Id:
         // TODO: Needs implementation.
+        err = aEncoder.EncodeEmptyList();
+        break;
+    case EndpointList::Id:
+        // TODO: Needs implementation and a way to allow dynamic endpoints to register endpoints
         err = aEncoder.EncodeEmptyList();
         break;
     default:
@@ -64,7 +68,7 @@ CHIP_ERROR PowerSourceAttrAccess::Read(const ConcreteReadAttributePath & aPath, 
 
 } // anonymous namespace
 
-void MatterPowerSourcePluginServerInitCallback(void)
+void MatterPowerSourcePluginServerInitCallback()
 {
     registerAttributeAccessOverride(&gAttrAccess);
 }

@@ -12,10 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: 27.2.20. [TC-CC-9.1] ColorLoopSet Validation
+name: 25.3.24. [TC-CC-9.1] ColorLoopSet Validation
+
+PICS:
+    - CC.S
 
 config:
     nodeId: 0x12344321
+    timeout: 400
     cluster: "Color Control"
     endpoint: 1
 
@@ -28,20 +32,52 @@ tests:
               - name: "nodeId"
                 value: nodeId
 
-    - label: "Precondition : Turn on light for color control tests"
-      cluster: "On/Off"
-      command: "on"
+    - label: "Step 0a: TH writes 0 to the Options attribute"
+      PICS: CC.S.A000f && CC.S.F02 && CC.S.F01
+      command: "writeAttribute"
+      attribute: "Options"
+      arguments:
+          value: 0
 
-    - label: "Check on/off attribute value is true after on command"
+    - label: "Step 0b: TH sends On command to DUT"
+      PICS: OO.S.C01.Rsp
       cluster: "On/Off"
-      command: "readAttribute"
-      attribute: "OnOff"
-      response:
-          value: 1
+      command: "On"
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 0c: TH sends EnhancedMoveToHue command to DUT with
+          EnhancedHue=0x4000, Direction=0x00 (shortest distance) and
+          TransitionTime=0 (immediately)."
+      command: "EnhancedMoveToHue"
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C40.Rsp
+      arguments:
+          values:
+              - name: "EnhancedHue"
+                value: 16384
+              - name: "Direction"
+                value: 0
+              - name: "TransitionTime"
+                value: 0
+              - name: "OptionsMask"
+                value: 0
+              - name: "OptionsOverride"
+                value: 0
+
+    - label: "Wait for 1000ms"
+      PICS: CC.S.F02 && CC.S.F01
+      cluster: "DelayCommands"
+      command: "WaitForMs"
+      arguments:
+          values:
+              - name: "ms"
+                value: 1000
+
+    - label:
+          "Step 1a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x1 (UpdateAction) and Action attribute to 0x0 (De-activate) to
+          DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -52,23 +88,26 @@ tests:
                 value: 0
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopActive attribute from DUT"
+    - label: "Step 1b: Read ColorLoopActive attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopActive"
-      PICS: A_COLORLOOPACTIVE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4002 && CC.S.C44.Rsp
       response:
           value: 0
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 2a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x2 (UpdateDirection) and Direction attribute to 0x0 (decrement
+          hue) to DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -79,23 +118,26 @@ tests:
                 value: 0
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopDirection attribute from DUT"
+    - label: "Step 2b: Read ColorLoopDirection attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopDirection"
-      PICS: A_COLORLOOPDIRECTION
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4003 && CC.S.C44.Rsp
       response:
           value: 0
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 3a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x4 (UpdateTime) and Time attribute to 30 (30s for one loop) to
+          DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -106,23 +148,25 @@ tests:
                 value: 0
               - name: "Time"
                 value: 30
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopTime attribute from DUT"
+    - label: "Step 3b: Read ColorLoopTime attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopTime"
-      PICS: A_COLORLOOPTIME
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4004 && CC.S.C44.Rsp
       response:
           value: 30
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 4a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x8 (UpdateStartHue) and StartHue attribute to 0x00A0 to DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -133,23 +177,26 @@ tests:
                 value: 0
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 160
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopStartEnhancedHue attribute from DUT"
+    - label: "Step 4b: Read ColorLoopStartEnhancedHue attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopStartEnhancedHue"
-      PICS: A_COLORLOOPSTARTENHANCEDHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4005 && CC.S.C44.Rsp
       response:
           value: 160
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 5a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x1 (UpdateAction) and Action attribute to 0x1 (start from
+          ColorLoopStartEnhancedHue) to DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -160,59 +207,79 @@ tests:
                 value: 0
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopActive attribute from DUT"
+    - label: "Step 5b: Read ColorLoopActive attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopActive"
-      PICS: A_COLORLOOPACTIVE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4002 && CC.S.C44.Rsp
       response:
           value: 1
 
-    - label: "Read EnhancedCurrentHue attribute from DUT"
-      command: "readAttribute"
-      attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
-      response:
-          saveAs: EnhancedCurrentHueValue1
-          constraints:
-              type: uint16
-
-    - label: "Read ColorLoopStoredEnhancedHue attribute from DUT."
+    - label: "Step 5c: Read ColorLoopStoredEnhancedHue attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopStoredEnhancedHue"
-      PICS: A_COLORLOOPSTOREDENHANCEDHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4006 && CC.S.C40.Rsp
       response:
-          value: EnhancedCurrentHueValue1
+          value: 16384
 
-    # Test is disabled because a sleep/wait is necessary to let the hue change over time
-    # Once sleep/wait is available, test case will need to be adapted
-    - label: "Read EnhancedCurrentHue attribute from DUT"
-      disabled: true
+    - label: "Wait for 30S"
+      PICS: CC.S.F02 && CC.S.F01
+      cluster: "DelayCommands"
+      command: "WaitForMs"
+      arguments:
+          values:
+              - name: "ms"
+                value: 30000
+
+    - label:
+          "Saving value for comparison in step 8d read ColorLoopStartEnhancedHue
+          attribute from DUT"
+      command: "readAttribute"
+      attribute: "ColorLoopStartEnhancedHue"
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4005 && CC.S.C44.Rsp
+      response:
+          saveAs: ColorLoopStartEnhancedHueStep5d
+
+    - label: "Step 5d: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C44.Rsp
       response:
-          value: 500
+          constraints:
+              type: int16u
+              minValue: ColorLoopStartEnhancedHueStep5d
+              maxValue: 65535
 
-    # Test is disabled because a sleep/wait is necessary to let the hue change over time
-    # Once sleep/wait is available, test case will need to be adapted
-    - label: "Read EnhancedCurrentHue attribute from DUT"
-      disabled: true
+    - label: "Wait for 30S"
+      PICS: CC.S.F02 && CC.S.F01
+      cluster: "DelayCommands"
+      command: "WaitForMs"
+      arguments:
+          values:
+              - name: "ms"
+                value: 30000
+
+    - label: "Step 5e: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C44.Rsp
       response:
-          value: 500
+          constraints:
+              type: int16u
+              minValue: ColorLoopStartEnhancedHueStep5d
+              maxValue: 65535
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 6a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x1 (UpdateAction) and Action attribute to 0x0 (De-activate) to DUT"
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -223,39 +290,42 @@ tests:
                 value: 0
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopActive attribute from DUT"
+    - label: "Step 6b: Read ColorLoopActive attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopActive"
-      PICS: A_COLORLOOPACTIVE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4002 && CC.S.C44.Rsp
       response:
           value: 0
 
-    - label: "Read ColorLoopStoredEnhancedHue attribute from DUT."
+    - label:
+          "Saving value for comparison in step 6c read
+          ColorLoopStoredEnhancedHue attribute from DUT."
       command: "readAttribute"
       attribute: "ColorLoopStoredEnhancedHue"
-      PICS: A_COLORLOOPSTOREDENHANCEDHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4006 && CC.S.C44.Rsp
       response:
-          saveAs: ColorLoopStoredEnhancedHueValue1
-          constraints:
-              type: uint16
+          saveAs: ColorLoopStoredEnhancedHueStep6c
 
-    - label: "Read EnhancedCurrentHue attribute from DUT"
+    - label: "Step 6c: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C44.Rsp
       response:
-          value: ColorLoopStoredEnhancedHueValue1
+          value: ColorLoopStoredEnhancedHueStep6c
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 7a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x2 (UpdateDirection) and Direction attribute to 0x1 (increment
+          hue) to DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -266,23 +336,26 @@ tests:
                 value: 1
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopDirection attribute from DUT"
+    - label: "Step 7b: Read ColorLoopDirection attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopDirection"
-      PICS: A_COLORLOOPDIRECTION
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4003 && CC.S.C44.Rsp
       response:
           value: 1
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 8a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x1 (UpdateAction) and Action attribute to 0x1 (start from
+          ColorLoopStartEnhancedHue) to DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -293,59 +366,80 @@ tests:
                 value: 0
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopActive attribute from DUT"
+    - label: "Step 8b: Read ColorLoopActive attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopActive"
-      PICS: A_COLORLOOPACTIVE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4002 && CC.S.C44.Rsp
       response:
           value: 1
 
-    - label: "Read EnhancedCurrentHue attribute from DUT"
-      command: "readAttribute"
-      attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
-      response:
-          saveAs: EnhancedCurrentHueValue2
-          constraints:
-              type: uint16
-
-    - label: "Read ColorLoopStoredEnhancedHue attribute from DUT"
+    - label: "Step 8c: Read ColorLoopStoredEnhancedHue attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopStoredEnhancedHue"
-      PICS: A_COLORLOOPSTOREDENHANCEDHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4006 && CC.S.C40.Rsp
       response:
-          value: EnhancedCurrentHueValue2
+          value: 16384
 
-    # Test is disabled because a sleep/wait is necessary to let the hue change over time
-    # Once sleep/wait is available, test case will need to be adapted
-    - label: "Read EnhancedCurrentHue attribute from DUT"
-      disabled: true
+    - label: "Wait for 30S"
+      PICS: CC.S.F02 && CC.S.F01
+      cluster: "DelayCommands"
+      command: "WaitForMs"
+      arguments:
+          values:
+              - name: "ms"
+                value: 30000
+
+    - label:
+          "Saving value for comparision in step 8d read
+          ColorLoopStartEnhancedHue attribute from DUT"
+      command: "readAttribute"
+      attribute: "ColorLoopStartEnhancedHue"
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4005 && CC.S.C44.Rsp
+      response:
+          saveAs: ColorLoopStartEnhancedHueStep8d
+
+    - label: "Step 8d: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C44.Rsp
       response:
-          value: 500
+          constraints:
+              type: int16u
+              minValue: ColorLoopStartEnhancedHueStep8d
+              maxValue: 65535
 
-    # Test is disabled because a sleep/wait is necessary to let the hue change over time
-    # Once sleep/wait is available, test case will need to be adapted
-    - label: "Read EnhancedCurrentHue attribute from DUT"
-      disabled: true
+    - label: "Wait for 30S"
+      PICS: CC.S.F02 && CC.S.F01
+      cluster: "DelayCommands"
+      command: "WaitForMs"
+      arguments:
+          values:
+              - name: "ms"
+                value: 30000
+
+    - label: "Step 8e: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C44.Rsp
       response:
-          value: 500
+          constraints:
+              type: int16u
+              minValue: ColorLoopStartEnhancedHueStep8d
+              maxValue: 65535
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 9a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x1 (UpdateAction) and Action attribute to 0x0 (De-activate) to
+          DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -356,43 +450,46 @@ tests:
                 value: 0
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopActive attribute from DUT"
+    - label: "Step 9b: Read ColorLoopActive attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopActive"
-      PICS: A_COLORLOOPACTIVE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4002 && CC.S.C44.Rsp
       response:
           value: 0
 
-    - label: "Read ColorLoopStoredEnhancedHue attribute from DUT."
+    - label:
+          "Saving value for comparision in step 9c read
+          ColorLoopStoredEnhancedHue attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopStoredEnhancedHue"
-      PICS: A_COLORLOOPSTOREDENHANCEDHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4006 && CC.S.C44.Rsp
       response:
-          saveAs: ColorLoopStoredEnhancedHueValue2
-          constraints:
-              type: uint16
+          saveAs: ColorLoopStoredEnhancedHueStep9c
 
-    - label: "Read EnhancedCurrentHue attribute from DUT"
+    - label: "Step 9c: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C44.Rsp
       response:
-          value: ColorLoopStoredEnhancedHueValue2
+          value: ColorLoopStoredEnhancedHueStep9c
 
-    - label: "Enhanced Move To Hue command"
+    - label:
+          "Step 10a: TH sends EnhancedMoveToHue command to DUT with
+          EnhancedHue=0x4000, Direction=0x00 (shortest distance) and
+          TransitionTime=0 (immediately)."
       command: "EnhancedMoveToHue"
-      PICS: CR_ENHANCEDMOVETOHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C40.Rsp
       arguments:
           values:
               - name: "EnhancedHue"
-                value: 40960
+                value: 16384
               - name: "Direction"
                 value: 0
               - name: "TransitionTime"
@@ -402,24 +499,28 @@ tests:
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Wait 2000ms"
+    - label: "Wait 1000ms"
+      PICS: CC.S.F02 && CC.S.F01
       cluster: "DelayCommands"
       command: "WaitForMs"
       arguments:
           values:
               - name: "ms"
-                value: 2000
+                value: 1000
 
-    - label: "Read EnhancedCurrentHue attribute from DUT"
+    - label: "Step 10b: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C40.Rsp
       response:
-          value: 40960
+          value: 16384
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 11a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x2 (UpdateDirection) and Direction attribute to 0x0 (decrement
+          hue) to DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -430,23 +531,26 @@ tests:
                 value: 0
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopDirection attribute from DUT"
+    - label: "Step 11b: Read ColorLoopDirection attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopDirection"
-      PICS: A_COLORLOOPDIRECTION
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4003 && CC.S.C44.Rsp
       response:
           value: 0
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 12a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x1 (UpdateAction) and Action attribute to 0x2 (start from
+          EnhancedCurrentHue) to DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -457,59 +561,80 @@ tests:
                 value: 0
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopActive attribute from DUT"
+    - label: "Step 12b: Read ColorLoopActive attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopActive"
-      PICS: A_COLORLOOPACTIVE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4002 && CC.S.C44.Rsp
       response:
           value: 1
 
-    - label: "Read EnhancedCurrentHue attribute from DUT"
-      command: "readAttribute"
-      attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
-      response:
-          saveAs: EnhancedCurrentHueValue3
-          constraints:
-              type: uint16
-
-    - label: "Read ColorLoopStoredEnhancedHue attribute from DUT"
+    - label: "Step 12c: Read ColorLoopStoredEnhancedHue attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopStoredEnhancedHue"
-      PICS: A_COLORLOOPSTOREDENHANCEDHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4006 && CC.S.C40.Rsp
       response:
-          value: EnhancedCurrentHueValue3
+          value: 16384
 
-    # Test is disabled because a sleep/wait is necessary to let the hue change over time
-    # Once sleep/wait is available, test case will need to be adapted
-    - label: "Read EnhancedCurrentHue attribute from DUT"
-      disabled: true
+    - label: "Wait for 30S"
+      PICS: CC.S.F02 && CC.S.F01
+      cluster: "DelayCommands"
+      command: "WaitForMs"
+      arguments:
+          values:
+              - name: "ms"
+                value: 30000
+
+    - label:
+          "Saving value for comparision in step 12d read
+          ColorLoopStartEnhancedHue attribute from DUT"
+      command: "readAttribute"
+      attribute: "ColorLoopStartEnhancedHue"
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4005 && CC.S.C44.Rsp
+      response:
+          saveAs: ColorLoopStartEnhancedHueStep12d
+
+    - label: "Step 12d: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C44.Rsp
       response:
-          value: 500
+          constraints:
+              type: int16u
+              minValue: ColorLoopStartEnhancedHueStep12d
+              maxValue: 65535
 
-    # Test is disabled because a sleep/wait is necessary to let the hue change over time
-    # Once sleep/wait is available, test case will need to be adapted
-    - label: "Read EnhancedCurrentHue attribute from DUT"
-      disabled: true
+    - label: "Wait for 30S"
+      PICS: CC.S.F02 && CC.S.F01
+      cluster: "DelayCommands"
+      command: "WaitForMs"
+      arguments:
+          values:
+              - name: "ms"
+                value: 30000
+
+    - label: "Step 12e: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C44.Rsp
       response:
-          value: 500
+          constraints:
+              type: int16u
+              minValue: ColorLoopStartEnhancedHueStep12d
+              maxValue: 65535
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 13a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x1 (UpdateAction) and Action attribute to 0x0 (De-activate) to
+          DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -520,39 +645,42 @@ tests:
                 value: 0
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopActive attribute from DUT"
+    - label: "Step 13b: Read ColorLoopActive attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopActive"
-      PICS: A_COLORLOOPACTIVE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4002 && CC.S.C44.Rsp
       response:
           value: 0
 
-    - label: "Read ColorLoopStoredEnhancedHue attribute from DUT."
+    - label:
+          "Saving value for comparision in step 13c read
+          ColorLoopStoredEnhancedHue attribute from DUT."
       command: "readAttribute"
       attribute: "ColorLoopStoredEnhancedHue"
-      PICS: A_COLORLOOPSTOREDENHANCEDHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4006 && CC.S.C44.Rsp
       response:
-          saveAs: ColorLoopStoredEnhancedHueValue3
-          constraints:
-              type: uint16
+          saveAs: ColorLoopStoredEnhancedHueStep13c
 
-    - label: "Read EnhancedCurrentHue attribute from DUT"
+    - label: "Step 13c: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C44.Rsp
       response:
-          value: ColorLoopStoredEnhancedHueValue3
+          value: ColorLoopStoredEnhancedHueStep13c
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 14a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x2 (UpdateDirection) and Direction attribute to 0x1 (increment
+          hue) to DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -563,24 +691,26 @@ tests:
                 value: 1
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    #Issue #336 expected value is 1 but returned is 2
-    - label: "Read ColorLoopDirection attribute from DUT"
+    - label: "Step 14b: Read ColorLoopDirection attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopDirection"
-      PICS: A_COLORLOOPDIRECTION
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4003 && CC.S.C44.Rsp
       response:
           value: 1
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 15a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x1 (UpdateAction) and Action attribute to 0x2 (start from
+          EnhancedCurrentHue) to DUT"
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -591,59 +721,80 @@ tests:
                 value: 0
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopActive attribute from DUT"
+    - label: "Step 15b: Read ColorLoopActive attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopActive"
-      PICS: A_COLORLOOPACTIVE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4002 && CC.S.C44.Rsp
       response:
           value: 1
 
-    - label: "Read EnhancedCurrentHue attribute from DUT"
-      command: "readAttribute"
-      attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
-      response:
-          saveAs: EnhancedCurrentHueValue4
-          constraints:
-              type: uint16
-
-    - label: "Read ColorLoopStoredEnhancedHue attribute from DUT"
+    - label: "Step 15c: Read ColorLoopStoredEnhancedHue attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopStoredEnhancedHue"
-      PICS: A_COLORLOOPSTOREDENHANCEDHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4006 && CC.S.C40.Rsp
       response:
-          value: EnhancedCurrentHueValue4
+          value: 16384
 
-    # Test is disabled because a sleep/wait is necessary to let the hue change over time
-    # Once sleep/wait is available, test case will need to be adapted
-    - label: "Read EnhancedCurrentHue attribute from DUT"
-      disabled: true
+    - label: "Wait for 30S"
+      PICS: CC.S.F02 && CC.S.F01
+      cluster: "DelayCommands"
+      command: "WaitForMs"
+      arguments:
+          values:
+              - name: "ms"
+                value: 30000
+
+    - label:
+          "Saving value for comparision in step 15d read
+          ColorLoopStartEnhancedHue attribute from DUT"
+      command: "readAttribute"
+      attribute: "ColorLoopStartEnhancedHue"
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4005 && CC.S.C44.Rsp
+      response:
+          saveAs: ColorLoopStartEnhancedHueStep15d
+
+    - label: "Step 15d: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C44.Rsp
       response:
-          value: 500
+          constraints:
+              type: int16u
+              minValue: ColorLoopStartEnhancedHueStep15d
+              maxValue: 65535
 
-    # Test is disabled because a sleep/wait is necessary to let the hue change over time
-    # Once sleep/wait is available, test case will need to be adapted
-    - label: "Read EnhancedCurrentHue attribute from DUT"
-      disabled: true
+    - label: "Wait for 30S"
+      PICS: CC.S.F02 && CC.S.F01
+      cluster: "DelayCommands"
+      command: "WaitForMs"
+      arguments:
+          values:
+              - name: "ms"
+                value: 30000
+
+    - label: "Step 15e: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C44.Rsp
       response:
-          value: 500
+          constraints:
+              type: int16u
+              minValue: ColorLoopStartEnhancedHueStep15d
+              maxValue: 65535
 
-    - label: "Sends ColorLoopSet Command - Set all Attributes"
+    - label:
+          "Step 16a: TH sends ColorLoopSet command to with UpdateFlag attribute
+          to 0x1 (UpdateAction) and Action attribute to 0x0 (De-activate) to
+          DUT."
       command: "ColorLoopSet"
-      PICS: CR_COLORLOOPSET
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.C44.Rsp
       arguments:
           values:
               - name: "UpdateFlags"
@@ -654,37 +805,38 @@ tests:
                 value: 0
               - name: "Time"
                 value: 0
-              - name: "startHue"
+              - name: "StartHue"
                 value: 0
               - name: "OptionsMask"
                 value: 0
               - name: "OptionsOverride"
                 value: 0
 
-    - label: "Read ColorLoopActive attribute from DUT"
+    - label: "Step 16b: Read ColorLoopActive attribute from DUT"
       command: "readAttribute"
       attribute: "ColorLoopActive"
-      PICS: A_COLORLOOPACTIVE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4002 && CC.S.C44.Rsp
       response:
           value: 0
 
-    - label: "Read ColorLoopStoredEnhancedHue attribute from DUT."
+    - label:
+          "Saving value for comparision in step 16b read
+          ColorLoopStoredEnhancedHue attribute from DUT."
       command: "readAttribute"
       attribute: "ColorLoopStoredEnhancedHue"
-      PICS: A_COLORLOOPSTOREDENHANCEDHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4006 && CC.S.C44.Rsp
       response:
-          saveAs: ColorLoopStoredEnhancedHue4
-          constraints:
-              type: uint16
+          saveAs: ColorLoopStoredEnhancedHueStep16b
 
-    - label: "Read EnhancedCurrentHue attribute from DUT"
+    - label: "Step 16c: Read EnhancedCurrentHue attribute from DUT"
       command: "readAttribute"
       attribute: "EnhancedCurrentHue"
-      PICS: A_ENHANCEDCURRENTHUE
+      PICS: CC.S.F02 && CC.S.F01 && CC.S.A4000 && CC.S.C44.Rsp
       response:
-          value: ColorLoopStoredEnhancedHue4
+          value: ColorLoopStoredEnhancedHueStep16b
 
     - label: "Turn Off light for color control tests"
+      PICS: OO.S.C00.Rsp
       cluster: "On/Off"
       command: "Off"
 
@@ -692,5 +844,6 @@ tests:
       cluster: "On/Off"
       command: "readAttribute"
       attribute: "OnOff"
+      PICS: OO.S.A0000
       response:
           value: 0

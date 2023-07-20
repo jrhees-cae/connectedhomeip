@@ -1,70 +1,19 @@
-from rich import print
-from rich.pretty import pprint
-from rich import pretty
-from rich import inspect
-from rich.console import Console
-import logging
-from chip import ChipDeviceCtrl
-import chip.clusters as Clusters
-from chip.ChipStack import *
-import coloredlogs
-import chip.logging
 import argparse
-import builtins
-import chip.FabricAdmin
 import atexit
+import builtins
+import logging
+
+import chip.CertificateAuthority
+import chip.discovery
+import chip.FabricAdmin
+import chip.logging
+import chip.native
+import coloredlogs
+from chip.ChipStack import ChipStack
+from rich import inspect, pretty
+from rich.console import Console
 
 _fabricAdmins = None
-
-
-def LoadFabricAdmins():
-    global _fabricAdmins
-
-    #
-    # Shutdown any fabric admins we had before as well as active controllers. This ensures we
-    # relinquish some resources if this is called multiple times (e.g in a Jupyter notebook)
-    #
-    chip.FabricAdmin.FabricAdmin.ShutdownAll()
-    ChipDeviceCtrl.ChipDeviceController.ShutdownAll()
-
-    _fabricAdmins = []
-    storageMgr = builtins.chipStack.GetStorageManager()
-
-    console = Console()
-
-    try:
-        adminList = storageMgr.GetReplKey('fabricAdmins')
-    except KeyError:
-        console.print(
-            "\n[purple]No previous fabric admins discovered in persistent storage - creating a new one...")
-        _fabricAdmins.append(chip.FabricAdmin.FabricAdmin())
-        return _fabricAdmins
-
-    console.print('\n')
-
-    for k in adminList:
-        console.print(
-            f"[purple]Restoring FabricAdmin from storage to manage FabricId {adminList[k]['fabricId']}, FabricIndex {k}...")
-        _fabricAdmins.append(chip.FabricAdmin.FabricAdmin(
-            fabricId=adminList[k]['fabricId'], fabricIndex=int(k)))
-
-    console.print(
-        '\n[blue]Fabric Admins have been loaded and are available at [red]fabricAdmins')
-    return _fabricAdmins
-
-
-def CreateDefaultDeviceController():
-    global _fabricAdmins
-
-    if (len(_fabricAdmins) == 0):
-        raise RuntimeError("Was called before calling LoadFabricAdmins()")
-
-    console = Console()
-
-    console.print('\n')
-    console.print(
-        f"[purple]Creating default device controller on fabric {_fabricAdmins[0]._fabricId}...")
-    return _fabricAdmins[0].NewController()
 
 
 def ReplInit(debug):
@@ -79,14 +28,14 @@ def ReplInit(debug):
     console.rule('Matter REPL')
     console.print('''
             [bold blue]
-    
+
             Welcome to the Matter Python REPL!
-    
+
             For help, please type [/][bold green]matterhelp()[/][bold blue]
-    
+
             To get more information on a particular object/class, you can pass
             that into [bold green]matterhelp()[/][bold blue] as well.
-    
+
             ''')
     console.rule()
 
@@ -99,9 +48,11 @@ def ReplInit(debug):
         logging.getLogger().setLevel(logging.WARN)
 
 
+certificateAuthorityManager = None
+
+
 def StackShutdown():
-    chip.FabricAdmin.FabricAdmin.ShutdownAll()
-    ChipDeviceCtrl.ChipDeviceController.ShutdownAll()
+    certificateAuthorityManager.Shutdown()
     builtins.chipStack.Shutdown()
 
 
@@ -130,19 +81,44 @@ console = Console()
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "-p", "--storagepath", help="Path to persistent storage configuration file (default: /tmp/repl-storage.json)", action="store", default="/tmp/repl-storage.json")
+    "-p", "--storagepath",
+    help="Path to persistent storage configuration file (default: /tmp/repl-storage.json)",
+    action="store",
+    default="/tmp/repl-storage.json")
 parser.add_argument(
     "-d", "--debug", help="Set default logging level to debug.", action="store_true")
 args = parser.parse_args()
 
-ReplInit(args.debug)
-chipStack = ChipStack(persistentStoragePath=args.storagepath)
-fabricAdmins = LoadFabricAdmins()
-devCtrl = CreateDefaultDeviceController()
+chip.native.Init()
 
+ReplInit(args.debug)
+chipStack = ChipStack(persistentStoragePath=args.storagepath, enableServerInteractions=False)
+certificateAuthorityManager = chip.CertificateAuthority.CertificateAuthorityManager(chipStack, chipStack.GetStorageManager())
+
+certificateAuthorityManager.LoadAuthoritiesFromStorage()
+
+if (len(certificateAuthorityManager.activeCaList) == 0):
+    ca = certificateAuthorityManager.NewCertificateAuthority()
+    ca.NewFabricAdmin(vendorId=0xFFF1, fabricId=1)
+elif (len(certificateAuthorityManager.activeCaList[0].adminList) == 0):
+    certificateAuthorityManager.activeCaList[0].NewFabricAdmin(vendorId=0xFFF1, fabricId=1)
+
+caList = certificateAuthorityManager.activeCaList
+
+devCtrl = caList[0].adminList[0].NewController()
 builtins.devCtrl = devCtrl
 
 atexit.register(StackShutdown)
 
 console.print(
-    '\n\n[blue]Default CHIP Device Controller has been initialized to manage [bold red]fabricAdmins[0][blue], and is available as [bold red]devCtrl')
+    '\n\n[blue]The following objects have been created:')
+
+console.print(
+    '''\t[red]certificateAuthorityManager[blue]:\tManages a list of CertificateAuthority instances.
+\t[red]caList[blue]:\t\t\t\tThe list of CertificateAuthority instances.
+\t[red]caList[n][m][blue]:\t\t\tA specific FabricAdmin object at index m for the nth CertificateAuthority instance.''')
+
+console.print(
+    f'\n\n[blue]Default CHIP Device Controller (NodeId: {devCtrl.nodeId}): '
+    f'has been initialized to manage [bold red]caList[0].adminList[0][blue] (FabricId = {caList[0].adminList[0].fabricId}), '
+    'and is available as [bold red]devCtrl')

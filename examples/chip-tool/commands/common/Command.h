@@ -21,7 +21,6 @@
 #include <app/data-model/Nullable.h>
 #include <commands/clusters/ComplexArgument.h>
 #include <commands/clusters/CustomArgument.h>
-#include <controller/CHIPDeviceController.h>
 #include <inet/InetInterface.h>
 #include <lib/core/Optional.h>
 #include <lib/support/Span.h>
@@ -66,13 +65,14 @@ enum ArgumentType
     String,
     CharString,
     OctetString,
-    Attribute,
     Address,
     Complex,
     Custom,
     VectorBool,
     Vector16,
     Vector32,
+    VectorCustom,
+    VectorString, // comma separated string items
 };
 
 struct Argument
@@ -95,6 +95,13 @@ struct Argument
     bool isNullable() const { return flags & kNullable; }
 };
 
+struct ReadOnlyGlobalCommandArgument
+{
+    const char * name;
+    const char * value;
+    const char * desc;
+};
+
 class Command
 {
 public:
@@ -104,10 +111,12 @@ public:
         ::chip::Inet::InterfaceId interfaceId;
     };
 
-    Command(const char * commandName) : mName(commandName) {}
+    Command(const char * commandName, const char * helpText = nullptr) : mName(commandName), mHelpText(helpText) {}
     virtual ~Command() {}
 
     const char * GetName(void) const { return mName; }
+    const char * GetHelpText() const { return mHelpText; }
+    const char * GetReadOnlyGlobalCommandArgument(void) const;
     const char * GetAttribute(void) const;
     const char * GetEvent(void) const;
     const char * GetArgumentName(size_t index) const;
@@ -116,7 +125,7 @@ public:
     size_t GetArgumentsCount(void) const { return mArgs.size(); }
 
     bool InitArguments(int argc, char ** argv);
-    size_t AddArgument(const char * name, const char * value, const char * desc = "", uint8_t flags = 0);
+    void AddArgument(const char * name, const char * value, const char * desc = "");
     /**
      * @brief
      *   Add a char string command argument
@@ -179,6 +188,7 @@ public:
 
     size_t AddArgument(const char * name, int64_t min, uint64_t max, std::vector<uint16_t> * value, const char * desc = "");
     size_t AddArgument(const char * name, int64_t min, uint64_t max, std::vector<uint32_t> * value, const char * desc = "");
+    size_t AddArgument(const char * name, std::vector<CustomArgument *> * value, const char * desc = "");
     size_t AddArgument(const char * name, int64_t min, uint64_t max, chip::Optional<std::vector<bool>> * value,
                        const char * desc = "");
     size_t AddArgument(const char * name, int64_t min, uint64_t max, chip::Optional<std::vector<uint32_t>> * value,
@@ -245,17 +255,27 @@ public:
         return AddArgument(name, min, max, reinterpret_cast<double *>(value), desc, flags | Argument::kNullable);
     }
 
+    size_t AddArgument(const char * name, std::vector<std::string> * value, const char * desc);
+    size_t AddArgument(const char * name, chip::Optional<std::vector<std::string>> * value, const char * desc);
+
     void ResetArguments();
 
     virtual CHIP_ERROR Run() = 0;
 
     bool IsInteractive() { return mIsInteractive; }
 
-    CHIP_ERROR RunAsInteractive()
+    CHIP_ERROR RunAsInteractive(const chip::Optional<char *> & interactiveStorageDirectory)
     {
-        mIsInteractive = true;
+        mStorageDirectory = interactiveStorageDirectory;
+        mIsInteractive    = true;
         return Run();
     }
+
+    const chip::Optional<char *> & GetStorageDirectory() const { return mStorageDirectory; }
+
+protected:
+    // mStorageDirectory lives here so we can just set it in RunAsInteractive.
+    chip::Optional<char *> mStorageDirectory;
 
 private:
     bool InitArgument(size_t argIndex, char * argValue);
@@ -269,7 +289,10 @@ private:
      */
     size_t AddArgumentToList(Argument && argument);
 
-    const char * mName  = nullptr;
-    bool mIsInteractive = false;
+    const char * mName     = nullptr;
+    const char * mHelpText = nullptr;
+    bool mIsInteractive    = false;
+
+    chip::Optional<ReadOnlyGlobalCommandArgument> mReadOnlyGlobalCommandArgument;
     std::vector<Argument> mArgs;
 };

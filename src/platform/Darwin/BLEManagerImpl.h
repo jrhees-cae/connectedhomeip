@@ -27,6 +27,9 @@
 
 namespace chip {
 namespace DeviceLayer {
+
+class BleScannerDelegate;
+
 namespace Internal {
 
 using namespace chip::Ble;
@@ -42,14 +45,14 @@ class BLEManagerImpl final : public BLEManager, private BleLayer
 
 public:
     CHIP_ERROR ConfigureBle(uint32_t aNodeId, bool aIsCentral) { return CHIP_NO_ERROR; }
+    CHIP_ERROR StartScan(BleScannerDelegate * delegate = nullptr);
+    CHIP_ERROR StopScan();
 
 private:
     // ===== Members that implement the BLEManager internal interface.
 
     CHIP_ERROR _Init(void);
-    CHIP_ERROR _Shutdown() { return CHIP_NO_ERROR; }
-    CHIPoBLEServiceMode _GetCHIPoBLEServiceMode(void);
-    CHIP_ERROR _SetCHIPoBLEServiceMode(CHIPoBLEServiceMode val);
+    void _Shutdown();
     bool _IsAdvertisingEnabled(void);
     CHIP_ERROR _SetAdvertisingEnabled(bool val);
     bool _IsAdvertising(void);
@@ -66,6 +69,10 @@ private:
     friend BLEManagerImpl & BLEMgrImpl(void);
 
     static BLEManagerImpl sInstance;
+
+    BleConnectionDelegate * mConnectionDelegate   = nullptr;
+    BlePlatformDelegate * mPlatformDelegate       = nullptr;
+    BleApplicationDelegate * mApplicationDelegate = nullptr;
 };
 
 /**

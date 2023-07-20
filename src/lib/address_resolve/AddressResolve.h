@@ -32,10 +32,10 @@ namespace AddressResolve {
 struct ResolveResult
 {
     Transport::PeerAddress address;
-    ReliableMessageProtocolConfig mrpConfig;
+    ReliableMessageProtocolConfig mrpRemoteConfig;
     bool supportsTcp = false;
 
-    ResolveResult() : address(Transport::Type::kUdp), mrpConfig(GetLocalMRPConfig()) {}
+    ResolveResult() : address(Transport::Type::kUdp), mrpRemoteConfig(GetDefaultMRPConfig()) {}
 };
 
 /// Represents an object interested in callbacks for a resolve operation.
@@ -66,7 +66,7 @@ public:
 /// Implementations extend this class with implementation-specific data like
 /// storing the 'last known good address' and 'scores' or any additional data
 /// required to figure out when a resolve is ok.
-class NodeLookupHandleBase : public IntrusiveListNodeBase
+class NodeLookupHandleBase : public IntrusiveListNodeBase<>
 {
 public:
     NodeLookupHandleBase() {}
@@ -142,7 +142,7 @@ public:
 
 private:
     static constexpr uint32_t kMinLookupTimeMsDefault = 200;
-    static constexpr uint32_t kMaxLookupTimeMsDefault = 15000;
+    static constexpr uint32_t kMaxLookupTimeMsDefault = 45000;
 
     PeerId mPeerId;
     System::Clock::Milliseconds32 mMinLookupTimeMs{ kMinLookupTimeMsDefault };
@@ -203,6 +203,32 @@ public:
     ///     and maintains lookup data internally while the operation is still
     ///     in progress)
     virtual CHIP_ERROR LookupNode(const NodeLookupRequest & request, Impl::NodeLookupHandle & handle) = 0;
+
+    /// Inform the Lookup handle that the previous node lookup was not
+    /// sufficient for the purpose of the caller (e.g establishing a session
+    /// fails with the result of the previous lookup), and that more data is
+    /// needed.
+    ///
+    /// This method must be called on a handle that is no longer active to
+    /// succeed.
+    ///
+    /// If the handle is no longer active and has results that have not been
+    /// delivered to the listener yet, the listener's OnNodeAddressResolved will
+    /// be called synchronously before the method returns.  Note that depending
+    /// on the listener implementation this can end up destroying the handle
+    /// and/or the listener.
+    ///
+    /// This method will return CHIP_NO_ERROR if and only if it has called
+    /// OnNodeAddressResolved.
+    ///
+    /// This method will return CHIP_ERROR_INCORRECT_STATE if the handle is
+    /// still active.
+    ///
+    /// This method will return CHIP_ERROR_WELL_EMPTY if there are no more
+    /// results.
+    ///
+    /// This method may return other errors in some cases.
+    virtual CHIP_ERROR TryNextResult(Impl::NodeLookupHandle & handle) = 0;
 
     /// Stops an active lookup request.
     ///

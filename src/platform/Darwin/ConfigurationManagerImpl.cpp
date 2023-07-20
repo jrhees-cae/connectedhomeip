@@ -96,7 +96,7 @@ CHIP_ERROR GetMACAddressFromInterfaces(io_iterator_t primaryInterfaceIterator, u
 
     kern_return_t kernResult;
     io_object_t interfaceService;
-    io_object_t controllerService;
+    io_object_t controllerService = 0;
 
     while ((interfaceService = IOIteratorNext(primaryInterfaceIterator)))
     {
@@ -191,13 +191,13 @@ CHIP_ERROR ConfigurationManagerImpl::Init()
 
     if (!PosixConfig::ConfigValueExists(PosixConfig::kConfigKey_RegulatoryLocation))
     {
-        uint32_t location = to_underlying(chip::app::Clusters::GeneralCommissioning::RegulatoryLocationType::kIndoor);
+        uint32_t location = to_underlying(chip::app::Clusters::GeneralCommissioning::RegulatoryLocationTypeEnum::kIndoor);
         ReturnErrorOnFailure(WriteConfigValue(PosixConfig::kConfigKey_RegulatoryLocation, location));
     }
 
     if (!PosixConfig::ConfigValueExists(PosixConfig::kConfigKey_LocationCapability))
     {
-        uint32_t location = to_underlying(chip::app::Clusters::GeneralCommissioning::RegulatoryLocationType::kIndoor);
+        uint32_t location = to_underlying(chip::app::Clusters::GeneralCommissioning::RegulatoryLocationTypeEnum::kIndoor);
         ReturnErrorOnFailure(WriteConfigValue(PosixConfig::kConfigKey_LocationCapability, location));
     }
 
@@ -232,24 +232,6 @@ bool ConfigurationManagerImpl::CanFactoryReset()
 void ConfigurationManagerImpl::InitiateFactoryReset()
 {
     ChipLogError(DeviceLayer, "InitiateFactoryReset not implemented");
-}
-
-CHIP_ERROR ConfigurationManagerImpl::GetVendorId(uint16_t & vendorId)
-{
-#if CHIP_DISABLE_PLATFORM_KVS
-    return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
-#else  // CHIP_DISABLE_PLATFORM_KVS
-    return ReadConfigValue(PosixConfig::kConfigKey_VendorId, vendorId);
-#endif // CHIP_DISABLE_PLATFORM_KVS
-}
-
-CHIP_ERROR ConfigurationManagerImpl::GetProductId(uint16_t & productId)
-{
-#if CHIP_DISABLE_PLATFORM_KVS
-    return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
-#else  // CHIP_DISABLE_PLATFORM_KVS
-    return ReadConfigValue(PosixConfig::kConfigKey_ProductId, productId);
-#endif // CHIP_DISABLE_PLATFORM_KVS
 }
 
 CHIP_ERROR ConfigurationManagerImpl::StoreVendorId(uint16_t vendorId)
@@ -505,13 +487,18 @@ CHIP_ERROR ConfigurationManagerImpl::WriteConfigValueBin(Key key, const uint8_t 
 #endif // CHIP_DISABLE_PLATFORM_KVS
 }
 
-void ConfigurationManagerImpl::RunConfigUnitTest(void)
+void ConfigurationManagerImpl::RunConfigUnitTest()
 {
 #if CHIP_DISABLE_PLATFORM_KVS
     return;
 #else  // CHIP_DISABLE_PLATFORM_KVS
     PosixConfig::RunConfigUnitTest();
 #endif // CHIP_DISABLE_PLATFORM_KVS
+}
+
+ConfigurationManager & ConfigurationMgrImpl()
+{
+    return ConfigurationManagerImpl::GetDefaultInstance();
 }
 
 } // namespace DeviceLayer

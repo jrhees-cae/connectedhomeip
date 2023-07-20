@@ -42,6 +42,9 @@ test runner.
     MG12 boards:
 
     -   BRD4161A / SLWSTK6000B / Wireless Starter Kit / 2.4GHz@19dBm
+    -   BRD4162A / SLWSTK6000B / Wireless Starter Kit / 2.4GHz@10dBm
+    -   BRD4163A / SLWSTK6000B / Wireless Starter Kit / 2.4GHz@10dBm,
+        868MHz@19dBm
     -   BRD4164A / SLWSTK6000B / Wireless Starter Kit / 2.4GHz@19dBm
     -   BRD4166A / SLTB004A / Thunderboard Sense 2 / 2.4GHz@10dBm
     -   BRD4170A / SLWSTK6000B / Multiband Wireless Starter Kit / 2.4GHz@19dBm,
@@ -54,8 +57,12 @@ test runner.
 
     MG24 boards :
 
+    -   BRD2601B / SLWSTK6000B / Wireless Starter Kit / 2.4GHz@10dBm
+    -   BRD2703A / SLWSTK6000B / Wireless Starter Kit / 2.4GHz@10dBm
     -   BRD4186A / SLWSTK6006A / Wireless Starter Kit / 2.4GHz@10dBm
+    -   BRD4186C / SLWSTK6006A / Wireless Starter Kit / 2.4GHz@10dBm
     -   BRD4187A / SLWSTK6006A / Wireless Starter Kit / 2.4GHz@20dBm
+    -   BRD4187C / SLWSTK6006A / Wireless Starter Kit / 2.4GHz@20dBm
 
 OR use GN/Ninja directly
 
@@ -91,7 +98,7 @@ Or build using build script from the root
 
     ```
     cd <connectedhomeip>
-    ./scripts/build/build_examples.py --target-glob '*nl-test-runner' build
+    ./scripts/build/build_examples.py --target linux-x64-nl-test-runner build
     ```
 
 The runner will be installed into the venv and python wheels will be packaged in
@@ -100,5 +107,5 @@ the output folder for deploying.
 -   To run the tests:
 
     ```
-    python -m nl_test_runner.nl_test_runner -d /dev/ttyACM1 -f out/debug/chip-efr32-device_tests.s37 -o out.log
+    python -m nl_test_runner.nl_test_runner -d /dev/ttyACM1 -f out/debug/matter-silabs-device_tests.s37 -o out.log
     ```

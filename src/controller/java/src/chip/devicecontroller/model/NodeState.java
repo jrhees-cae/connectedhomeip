@@ -17,9 +17,10 @@
  */
 package chip.devicecontroller.model;
 
-import androidx.annotation.Nullable;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /** Class for tracking CHIP node state in a hierarchical manner. */
 public final class NodeState {
@@ -34,6 +35,16 @@ public final class NodeState {
   }
 
   // Called from native code only, which ignores access modifiers.
+  private void setDataVersion(int endpointId, long clusterId, long dataVersion) {
+    EndpointState endpointState = getEndpointState(endpointId);
+    ClusterState clusterState = endpointState.getClusterState(clusterId);
+
+    if (clusterState != null) {
+      clusterState.setDataVersion(dataVersion);
+    }
+  }
+
+  // Called from native code only, which ignores access modifiers.
   private void addAttribute(
       int endpointId, long clusterId, long attributeId, AttributeState attributeStateToAdd) {
     EndpointState endpointState = getEndpointState(endpointId);
@@ -44,12 +55,31 @@ public final class NodeState {
 
     ClusterState clusterState = endpointState.getClusterState(clusterId);
     if (clusterState == null) {
-      clusterState = new ClusterState(new HashMap<>());
+      clusterState = new ClusterState(new HashMap<>(), new HashMap<>());
       endpointState.getClusterStates().put(clusterId, clusterState);
     }
 
     // This will overwrite previous attributes.
     clusterState.getAttributeStates().put(attributeId, attributeStateToAdd);
+  }
+
+  private void addEvent(int endpointId, long clusterId, long eventId, EventState eventStateToAdd) {
+    EndpointState endpointState = getEndpointState(endpointId);
+    if (endpointState == null) {
+      endpointState = new EndpointState(new HashMap<>());
+      getEndpointStates().put(endpointId, endpointState);
+    }
+
+    ClusterState clusterState = endpointState.getClusterState(clusterId);
+    if (clusterState == null) {
+      clusterState = new ClusterState(new HashMap<>(), new HashMap<>());
+      endpointState.getClusterStates().put(clusterId, clusterState);
+    }
+
+    if (!clusterState.getEventStates().containsKey(eventId)) {
+      clusterState.getEventStates().put(eventId, new ArrayList<EventState>());
+    }
+    clusterState.getEventStates().get(eventId).add(eventStateToAdd);
   }
 
   @Override

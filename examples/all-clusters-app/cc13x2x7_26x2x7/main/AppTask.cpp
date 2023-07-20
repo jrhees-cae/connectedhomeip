@@ -28,8 +28,17 @@
 #include <credentials/DeviceAttestationCredsProvider.h>
 #include <credentials/examples/DeviceAttestationCredsExample.h>
 
+#include <DeviceInfoProviderImpl.h>
 #include <platform/CHIPDeviceLayer.h>
+#include <static-supported-temperature-levels.h>
 
+#if CHIP_DEVICE_CONFIG_ENABLE_OTA_REQUESTOR
+#include <app/clusters/ota-requestor/BDXDownloader.h>
+#include <app/clusters/ota-requestor/DefaultOTARequestor.h>
+#include <app/clusters/ota-requestor/DefaultOTARequestorDriver.h>
+#include <app/clusters/ota-requestor/DefaultOTARequestorStorage.h>
+#include <platform/cc13x2_26x2/OTAImageProcessorImpl.h>
+#endif
 #include <lib/support/CHIPMem.h>
 #include <lib/support/CHIPPlatformMemory.h>
 
@@ -57,10 +66,35 @@ static QueueHandle_t sAppEventQueue;
 
 static Button_Handle sAppLeftHandle;
 static Button_Handle sAppRightHandle;
+static DeviceInfoProviderImpl sExampleDeviceInfoProvider;
 
 AppTask AppTask::sAppTask;
 
 constexpr EndpointId kNetworkCommissioningEndpointSecondary = 0xFFFE;
+
+namespace {
+app::Clusters::TemperatureControl::AppSupportedTemperatureLevelsDelegate sAppSupportedTemperatureLevelsDelegate;
+}
+
+#if CHIP_DEVICE_CONFIG_ENABLE_OTA_REQUESTOR
+static DefaultOTARequestor sRequestorCore;
+static DefaultOTARequestorStorage sRequestorStorage;
+static DefaultOTARequestorDriver sRequestorUser;
+static BDXDownloader sDownloader;
+static OTAImageProcessorImpl sImageProcessor;
+
+void InitializeOTARequestor(void)
+{
+    // Initialize and interconnect the Requestor and Image Processor objects
+    SetRequestorInstance(&sRequestorCore);
+
+    sRequestorStorage.Init(Server::GetInstance().GetPersistentStorage());
+    sRequestorCore.Init(Server::GetInstance(), sRequestorStorage, sRequestorUser, sDownloader);
+    sImageProcessor.SetOTADownloader(&sDownloader);
+    sDownloader.SetImageProcessorDelegate(&sImageProcessor);
+    sRequestorUser.Init(&sRequestorCore, &sImageProcessor);
+}
+#endif
 
 #ifdef AUTO_PRINT_METRICS
 static void printMetrics(void)
@@ -93,14 +127,6 @@ void DeviceEventCallback(const ChipDeviceEvent * event, intptr_t arg)
 {
     switch (event->Type)
     {
-    case DeviceEventType::kSessionEstablished: {
-        if (event->SessionEstablished.IsCommissioner)
-        {
-            PLAT_LOG("Commissioning session established");
-        }
-    }
-    break;
-
     case DeviceEventType::kCHIPoBLEConnectionEstablished:
         PLAT_LOG("CHIPoBLE connection established");
         break;
@@ -127,7 +153,7 @@ int AppTask::StartAppTask()
     if (sAppEventQueue == NULL)
     {
         PLAT_LOG("Failed to allocate app event queue");
-        while (1)
+        while (true)
             ;
     }
 
@@ -136,7 +162,7 @@ int AppTask::StartAppTask()
         pdPASS)
     {
         PLAT_LOG("Failed to create app task");
-        while (1)
+        while (true)
             ;
     }
     return ret;
@@ -184,7 +210,7 @@ int AppTask::Init()
     if (ret != CHIP_NO_ERROR)
     {
         PLAT_LOG("PlatformMgr().InitChipStack() failed");
-        while (1)
+        while (true)
             ;
     }
 
@@ -192,7 +218,7 @@ int AppTask::Init()
     if (ret != CHIP_NO_ERROR)
     {
         PLAT_LOG("ThreadStackMgr().InitThreadStack() failed");
-        while (1)
+        while (true)
             ;
     }
 
@@ -200,7 +226,7 @@ int AppTask::Init()
     if (ret != CHIP_NO_ERROR)
     {
         PLAT_LOG("ConnectivityMgr().SetThreadDeviceType() failed");
-        while (1)
+        while (true)
             ;
     }
 
@@ -208,7 +234,7 @@ int AppTask::Init()
     if (ret != CHIP_NO_ERROR)
     {
         PLAT_LOG("PlatformMgr().StartEventLoopTask() failed");
-        while (1)
+        while (true)
             ;
     }
 
@@ -216,7 +242,7 @@ int AppTask::Init()
     if (ret != CHIP_NO_ERROR)
     {
         PLAT_LOG("ThreadStackMgr().StartThreadTask() failed");
-        while (1)
+        while (true)
             ;
     }
 
@@ -224,6 +250,11 @@ int AppTask::Init()
     PLAT_LOG("Initialize Server");
     static chip::CommonCaseDeviceServerInitParams initParams;
     (void) initParams.InitializeStaticResourcesBeforeServerInit();
+
+    // Initialize info provider
+    sExampleDeviceInfoProvider.SetStorageDelegate(initParams.persistentStorageDelegate);
+    SetDeviceInfoProvider(&sExampleDeviceInfoProvider);
+
     chip::Server::GetInstance().Init(initParams);
 
     ConfigurationMgr().LogDeviceConfig();
@@ -238,9 +269,13 @@ int AppTask::Init()
     // this function will happen on the CHIP event loop thread, not the app_main thread.
     PlatformMgr().AddEventHandler(DeviceEventCallback, reinterpret_cast<intptr_t>(nullptr));
 
+#if CHIP_DEVICE_CONFIG_ENABLE_OTA_REQUESTOR
+    InitializeOTARequestor();
+#endif
     // QR code will be used with CHIP Tool
     PrintOnboardingCodes(RendezvousInformationFlags(RendezvousInformationFlag::kBLE));
 
+    app::Clusters::TemperatureControl::SetInstance(&sAppSupportedTemperatureLevelsDelegate);
     return 0;
 }
 
@@ -250,7 +285,7 @@ void AppTask::AppTaskMain(void * pvParameter)
 
     sAppTask.Init();
 
-    while (1)
+    while (true)
     {
         /* Task pend until we have stuff to do */
         if (xQueueReceive(sAppEventQueue, &event, portMAX_DELAY) == pdTRUE)
@@ -318,12 +353,7 @@ void AppTask::DispatchEvent(AppEvent * aEvent)
         }
         else if (AppEvent::kAppEventButtonType_LongClicked == aEvent->ButtonEvent.Type)
         {
-            // Disable BLE advertisements
-            if (ConnectivityMgr().IsBLEAdvertisingEnabled())
-            {
-                ConnectivityMgr().SetBLEAdvertisingEnabled(false);
-                PLAT_LOG("Disabled BLE Advertisements");
-            }
+            chip::Server::GetInstance().ScheduleFactoryReset();
         }
         break;
 
@@ -338,12 +368,18 @@ void AppTask::DispatchEvent(AppEvent * aEvent)
             {
                 if (Server::GetInstance().GetCommissioningWindowManager().OpenBasicCommissioningWindow() == CHIP_NO_ERROR)
                 {
-                    PLAT_LOG("Enabled BLE Advertisement");
+                    PLAT_LOG("Enabled BLE Advertisements");
                 }
                 else
                 {
                     PLAT_LOG("OpenBasicCommissioningWindow() failed");
                 }
+            }
+            else
+            {
+                // Disable BLE advertisements
+                ConnectivityMgr().SetBLEAdvertisingEnabled(false);
+                PLAT_LOG("Disabled BLE Advertisements");
             }
         }
         break;

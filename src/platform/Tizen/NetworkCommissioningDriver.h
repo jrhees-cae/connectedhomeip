@@ -17,12 +17,41 @@
 
 #pragma once
 
-#include <platform/NetworkCommissioning.h>
+#include <string>
 #include <vector>
+
+#include <platform/NetworkCommissioning.h>
 
 namespace chip {
 namespace DeviceLayer {
 namespace NetworkCommissioning {
+
+template <typename T>
+class TizenScanResponseIterator : public Iterator<T>
+{
+public:
+    TizenScanResponseIterator(std::vector<T> * apScanResponse) : mpScanResponse(apScanResponse) {}
+    size_t Count() override { return mpScanResponse != nullptr ? mpScanResponse->size() : 0; }
+    bool Next(T & item) override
+    {
+        if (mpScanResponse == nullptr || currentIterating >= mpScanResponse->size())
+        {
+            return false;
+        }
+        item = (*mpScanResponse)[currentIterating];
+        currentIterating++;
+        return true;
+    }
+    void Release() override
+    { /* nothing to do, we don't hold the ownership of the vector, and users is not expected to hold the ownership in OnFinished for
+         scan. */
+    }
+
+private:
+    size_t currentIterating = 0;
+    // Note: We cannot post a event in ScheduleLambda since std::vector is not trivial copyable.
+    std::vector<T> * mpScanResponse;
+};
 
 #if CHIP_DEVICE_CONFIG_ENABLE_WIFI
 class TizenWiFiDriver final : public WiFiDriver
@@ -53,7 +82,6 @@ public:
     // BaseDriver
     NetworkIterator * GetNetworks() override { return new WiFiNetworkIterator(this); }
     CHIP_ERROR Init(BaseDriver::NetworkStatusChangeCallback * networkStatusChangeCallback) override;
-    CHIP_ERROR Shutdown() override { return CHIP_NO_ERROR; }
 
     // WirelessDriver
     uint8_t GetMaxNetworks() override { return 1; }
@@ -75,7 +103,6 @@ public:
 private:
     bool NetworkMatch(const WiFiNetwork & network, ByteSpan networkId);
 
-    WiFiNetworkIterator mWiFiIterator = WiFiNetworkIterator(this);
     WiFiNetwork mSavedNetwork;
     WiFiNetwork mStagingNetwork;
 };
@@ -102,7 +129,6 @@ public:
     // BaseDriver
     NetworkIterator * GetNetworks() override { return new ThreadNetworkIterator(this); }
     CHIP_ERROR Init(BaseDriver::NetworkStatusChangeCallback * networkStatusChangeCallback) override;
-    CHIP_ERROR Shutdown() override { return CHIP_NO_ERROR; }
 
     // WirelessDriver
     uint8_t GetMaxNetworks() override { return 1; }
@@ -127,6 +153,28 @@ private:
 };
 
 #endif // CHIP_DEVICE_CONFIG_ENABLE_THREAD
+
+class TizenEthernetDriver final : public EthernetDriver
+{
+public:
+    class EthernetNetworkIterator final : public NetworkIterator
+    {
+    public:
+        EthernetNetworkIterator(TizenEthernetDriver * aDriver);
+        ~EthernetNetworkIterator() override = default;
+        size_t Count() override { return mInterfaces.size(); }
+        bool Next(Network & item) override;
+        void Release() override { delete this; }
+
+    private:
+        TizenEthernetDriver * mDriver;
+        std::vector<std::string> mInterfaces;
+        size_t mInterfacesIdx = 0;
+    };
+
+    uint8_t GetMaxNetworks() override { return 1; };
+    NetworkIterator * GetNetworks() override { return new EthernetNetworkIterator(this); };
+};
 
 } // namespace NetworkCommissioning
 } // namespace DeviceLayer

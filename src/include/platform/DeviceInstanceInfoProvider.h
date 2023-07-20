@@ -17,6 +17,7 @@
 #pragma once
 
 #include <lib/core/CHIPError.h>
+#include <lib/core/ClusterEnums.h>
 #include <lib/support/Span.h>
 
 namespace chip {
@@ -27,6 +28,77 @@ class DeviceInstanceInfoProvider
 public:
     DeviceInstanceInfoProvider()          = default;
     virtual ~DeviceInstanceInfoProvider() = default;
+
+    /**
+     * @brief Obtain the Vendor Name from the device's factory data.
+     *
+     * @param[out] buf Buffer to copy string.
+     *                 On CHIP_NO_ERROR return from this function this buffer will be null-terminated.
+     *                 On error CHIP_ERROR_BUFFER_TOO_SMALL there is no guarantee that buffer will be null-terminated.
+     * @param[in] bufSize Size of data, including the null terminator, that can be written to buf.
+     *                    This size should be +1 higher than maximum possible string.
+     * @returns CHIP_NO_ERROR on success, or another CHIP_ERROR from the underlying implementation
+     *          if access fails.
+     */
+    virtual CHIP_ERROR GetVendorName(char * buf, size_t bufSize) = 0;
+
+    /**
+     * @brief Obtain the Vendor Id from the device's factory data.
+     *
+     * @param[out] vendorId Reference to location where the vendor id integer will be copied
+     * @returns CHIP_NO_ERROR on success, or another CHIP_ERROR from the underlying implementation
+     *          if access fails.
+     */
+    virtual CHIP_ERROR GetVendorId(uint16_t & vendorId) = 0;
+
+    /**
+     * @brief Obtain the Product Name from the device's factory data.
+     *
+     * @param[in, out] buf Buffer to copy string.
+     *                 On CHIP_NO_ERROR return from this function this buffer will be null-terminated.
+     *                 On error CHIP_ERROR_BUFFER_TOO_SMALL there is no guarantee that buffer will be null-terminated.
+     * @param[in] bufSize Size of data, including the null terminator, that can be written to buf.
+     *                    This size should be +1 higher than maximum possible string.
+     * @returns CHIP_NO_ERROR on success, or another CHIP_ERROR from the underlying implementation
+     *          if access fails.
+     */
+    virtual CHIP_ERROR GetProductName(char * buf, size_t bufSize) = 0;
+
+    /**
+     * @brief Obtain the Product Id from the device's factory data.
+     *
+     * @param[out] productId Reference to location where the product id integer will be copied
+     * @returns CHIP_NO_ERROR on success, or another CHIP_ERROR from the underlying implementation
+     *          if access fails.
+     */
+    virtual CHIP_ERROR GetProductId(uint16_t & productId) = 0;
+
+    /**
+     * @brief Obtain Part Number from the device factory data.
+     *
+     * @param[out] buf     Buffer to store the null-terminated result string.
+     * @param[in] bufSize  Size of the buffer. The buffer should allow for fitting in Part Number
+     *                     (max 32 characters) and the null terminator.
+     **/
+    virtual CHIP_ERROR GetPartNumber(char * buf, size_t bufSize) = 0;
+
+    /**
+     * @brief Obtain Product URL from the device factory data.
+     *
+     * @param[out] buf     Buffer to store the null-terminated result string.
+     * @param[in] bufSize  Size of the buffer. The buffer should allow for fitting in Product URL
+     *                     (max 256 characters) and the null terminator.
+     **/
+    virtual CHIP_ERROR GetProductURL(char * buf, size_t bufSize) = 0;
+
+    /**
+     * @brief Obtain Product Label from the device factory data.
+     *
+     * @param[out] buf     Buffer to store the null-terminated result string.
+     * @param[in] bufSize  Size of the buffer. The buffer should allow for fitting in Product Label
+     *                     (max 64 characters) and the null terminator.
+     **/
+    virtual CHIP_ERROR GetProductLabel(char * buf, size_t bufSize) = 0;
 
     /**
      * @brief Obtain the Serial Number from the device's factory data.
@@ -98,6 +170,30 @@ public:
      *          if access fails.
      */
     virtual CHIP_ERROR GetRotatingDeviceIdUniqueId(MutableByteSpan & uniqueIdSpan) = 0;
+
+    /**
+     * @brief Obtain the product's finish from the device's factory data.
+     *
+     * If the product finish is not available, this should return
+     * CHIP_ERROR_NOT_IMPLEMENTED, and the Basic Information ProductAppearance attribute should
+     * not be implemented for the device.
+     */
+    virtual CHIP_ERROR GetProductFinish(app::Clusters::BasicInformation::ProductFinishEnum * finish)
+    {
+        return CHIP_ERROR_NOT_IMPLEMENTED;
+    }
+
+    /**
+     * @brief Obtain the product's primary color from the device's factory data.
+     *
+     * If the primary color finish is not available or does not exist (e.g. the
+     * device wants to return null for the color in the Basic Information
+     * ProductAppearance attribute), this should return CHIP_ERROR_NOT_IMPLEMENTED.
+     */
+    virtual CHIP_ERROR GetProductPrimaryColor(app::Clusters::BasicInformation::ColorEnum * primaryColor)
+    {
+        return CHIP_ERROR_NOT_IMPLEMENTED;
+    }
 };
 
 /**

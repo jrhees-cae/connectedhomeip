@@ -25,7 +25,7 @@
 #include <app/util/af.h>
 #include <credentials/FabricTable.h>
 #include <crypto/RandUtils.h>
-#include <lib/core/CHIPTLV.h>
+#include <lib/core/TLV.h>
 #include <lib/support/CHIPMemString.h>
 #include <protocols/bdx/BdxUri.h>
 
@@ -182,8 +182,8 @@ UserConsentSubject OTAProviderExample::GetUserConsentSubject(const app::CommandH
     subject.fabricIndex             = commandObj->GetSubjectDescriptor().fabricIndex;
     subject.requestorNodeId         = commandObj->GetSubjectDescriptor().subject;
     subject.providerEndpointId      = commandPath.mEndpointId;
-    subject.requestorVendorId       = commandData.vendorId;
-    subject.requestorProductId      = commandData.productId;
+    subject.requestorVendorId       = commandData.vendorID;
+    subject.requestorProductId      = commandData.productID;
     subject.requestorCurrentVersion = commandData.softwareVersion;
     subject.requestorTargetVersion  = targetVersion;
     if (commandData.metadataForProvider.HasValue())
@@ -247,9 +247,9 @@ void OTAProviderExample::SendQueryImageResponse(app::CommandHandler * commandObj
 
         // TODO: This uses the current node as the provider to supply the OTA image. This can be configurable such that the
         // provider supplying the response is not the provider supplying the OTA image.
-        FabricIndex fabricIndex = commandObj->GetAccessingFabricIndex();
-        FabricInfo * fabricInfo = Server::GetInstance().GetFabricTable().FindFabricWithIndex(fabricIndex);
-        NodeId nodeId           = fabricInfo->GetPeerId().GetNodeId();
+        FabricIndex fabricIndex       = commandObj->GetAccessingFabricIndex();
+        const FabricInfo * fabricInfo = Server::GetInstance().GetFabricTable().FindFabricWithIndex(fabricIndex);
+        NodeId nodeId                 = fabricInfo->GetPeerId().GetNodeId();
 
         // Generate the ImageURI if one is not already preset
         if (strlen(mImageUri) == 0)
@@ -341,7 +341,7 @@ void OTAProviderExample::HandleQueryImage(app::CommandHandler * commandObj, cons
         if (!mCandidates.empty()) // If list of OTA candidates is supplied
         {
             OTAProviderExample::DeviceSoftwareVersionModel candidate;
-            if (SelectOTACandidate(commandData.vendorId, commandData.productId, commandData.softwareVersion, candidate))
+            if (SelectOTACandidate(commandData.vendorID, commandData.productID, commandData.softwareVersion, candidate))
             {
                 VerifyOrDie(sizeof(mSoftwareVersionString) > strlen(candidate.softwareVersionString));
 

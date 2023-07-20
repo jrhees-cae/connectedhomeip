@@ -52,23 +52,63 @@ CHIP_ERROR BLEManagerImpl::_Init()
     BleApplicationDelegateImpl * appDelegate   = new BleApplicationDelegateImpl();
     BleConnectionDelegateImpl * connDelegate   = new BleConnectionDelegateImpl();
     BlePlatformDelegateImpl * platformDelegate = new BlePlatformDelegateImpl();
+
+    mApplicationDelegate = appDelegate;
+    mConnectionDelegate  = connDelegate;
+    mPlatformDelegate    = platformDelegate;
+
     err = BleLayer::Init(platformDelegate, connDelegate, appDelegate, &DeviceLayer::SystemLayer());
+
+    if (CHIP_NO_ERROR != err)
+    {
+        _Shutdown();
+    }
+
     return err;
 }
 
-ConnectivityManager::CHIPoBLEServiceMode BLEManagerImpl::_GetCHIPoBLEServiceMode(void)
+void BLEManagerImpl::_Shutdown()
 {
-    ChipLogDetail(DeviceLayer, "%s", __FUNCTION__);
-    return ConnectivityManager::kCHIPoBLEServiceMode_NotSupported;
+    if (mApplicationDelegate)
+    {
+        delete mApplicationDelegate;
+        mApplicationDelegate = nullptr;
+    }
+
+    if (mConnectionDelegate)
+    {
+        delete mConnectionDelegate;
+        mConnectionDelegate = nullptr;
+    }
+
+    if (mPlatformDelegate)
+    {
+        delete mPlatformDelegate;
+        mPlatformDelegate = nullptr;
+    }
 }
 
-CHIP_ERROR BLEManagerImpl::_SetCHIPoBLEServiceMode(ConnectivityManager::CHIPoBLEServiceMode val)
+CHIP_ERROR BLEManagerImpl::StartScan(BleScannerDelegate * delegate)
 {
-    ChipLogDetail(DeviceLayer, "%s", __FUNCTION__);
-    return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
+    if (mConnectionDelegate)
+    {
+        static_cast<BleConnectionDelegateImpl *>(mConnectionDelegate)->StartScan(delegate);
+        return CHIP_NO_ERROR;
+    }
+    return CHIP_ERROR_INCORRECT_STATE;
 }
 
-bool BLEManagerImpl::_IsAdvertisingEnabled(void)
+CHIP_ERROR BLEManagerImpl::StopScan()
+{
+    if (mConnectionDelegate)
+    {
+        static_cast<BleConnectionDelegateImpl *>(mConnectionDelegate)->StopScan();
+        return CHIP_NO_ERROR;
+    }
+    return CHIP_ERROR_INCORRECT_STATE;
+}
+
+bool BLEManagerImpl::_IsAdvertisingEnabled()
 {
     ChipLogDetail(DeviceLayer, "%s", __FUNCTION__);
     return false;
@@ -86,7 +126,7 @@ CHIP_ERROR BLEManagerImpl::_SetAdvertisingMode(BLEAdvertisingMode mode)
     return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
 }
 
-bool BLEManagerImpl::_IsAdvertising(void)
+bool BLEManagerImpl::_IsAdvertising()
 {
     ChipLogDetail(DeviceLayer, "%s", __FUNCTION__);
     return false;
@@ -109,7 +149,7 @@ BleLayer * BLEManagerImpl::_GetBleLayer()
     return this;
 }
 
-uint16_t BLEManagerImpl::_NumConnections(void)
+uint16_t BLEManagerImpl::_NumConnections()
 {
     ChipLogDetail(DeviceLayer, "%s", __FUNCTION__);
     return 0;

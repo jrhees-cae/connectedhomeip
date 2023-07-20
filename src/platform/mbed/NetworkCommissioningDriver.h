@@ -47,8 +47,9 @@ public:
         }
 
         item.security.SetRaw(mScanResults[mIternum].get_security());
-        item.ssidLen  = strnlen(reinterpret_cast<const char *>(mScanResults[mIternum].get_ssid()),
-                               chip::DeviceLayer::Internal::kMaxWiFiSSIDLength);
+        static_assert(chip::DeviceLayer::Internal::kMaxWiFiSSIDLength <= UINT8_MAX, "Our length won't fit in ssidLen");
+        item.ssidLen  = static_cast<uint8_t>(strnlen(reinterpret_cast<const char *>(mScanResults[mIternum].get_ssid()),
+                                                    chip::DeviceLayer::Internal::kMaxWiFiSSIDLength));
         item.channel  = mScanResults[mIternum].get_channel();
         item.wiFiBand = chip::DeviceLayer::NetworkCommissioning::WiFiBand::k2g4;
         item.rssi     = mScanResults[mIternum].get_rssi();
@@ -94,7 +95,7 @@ public:
     // BaseDriver
     NetworkIterator * GetNetworks() override { return new WiFiNetworkIterator(this); }
     CHIP_ERROR Init(NetworkStatusChangeCallback * networkStatusChangeCallback) override;
-    CHIP_ERROR Shutdown() override;
+    void Shutdown() override;
 
     // WirelessDriver
     uint8_t GetMaxNetworks() override { return kMaxWiFiNetworks; }
@@ -143,7 +144,6 @@ private:
 
     chip::DeviceLayer::Internal::WiFiAuthSecurityType NsapiToNetworkSecurity(nsapi_security_t nsapi_security);
 
-    WiFiNetworkIterator mWiFiIterator = WiFiNetworkIterator(this);
     WiFiNetwork mSavedNetwork;
     WiFiNetwork mStagingNetwork;
     ScanCallback * mScanCallback;
